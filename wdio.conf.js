@@ -1,0 +1,100 @@
+const { join } = require('node:path');
+
+const isBrowserStack = Boolean(process.env.BROWSERSTACK_USER && process.env.BROWSERSTACK_KEY);
+const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
+const isAndroid = platformName === 'android';
+const buildName = process.env.BUILD_NAME || 'mobile-functional-visual';
+const appId = process.env.APP || 'bs://<your-app-id-from-browserstack>';
+
+const services = [];
+
+if (isBrowserStack) {
+  services.push([
+    'browserstack',
+    {
+      testObservability: true,
+      preferScenarioName: true,
+    },
+  ]);
+} else {
+  services.push([
+    'appium',
+    {
+      args: {
+        address: '127.0.0.1',
+        port: 4723,
+      },
+      command: 'appium',
+    },
+  ]);
+}
+
+services.push([
+  'image-comparison',
+  {
+    baselineFolder: join(process.cwd(), 'visual-baseline'),
+    screenshotPath: join(process.cwd(), 'visual-output'),
+    formatImageName: '{tag}-{platformName}-{deviceName}-{width}x{height}',
+    savePerInstance: true,
+    autoSaveBaseline: true,
+  },
+]);
+
+const config = {
+  runner: 'local',
+  specs: ['./tests/specs/**/*.e2e.js'],
+  maxInstances: 1,
+  logLevel: 'info',
+  user: process.env.BROWSERSTACK_USER,
+  key: process.env.BROWSERSTACK_KEY,
+  framework: 'mocha',
+  reporters: ['spec'],
+  mochaOpts: {
+    timeout: 120000,
+  },
+  services,
+  baseUrl: 'http://localhost',
+  capabilities: [
+    isBrowserStack
+      ? {
+          platformName: isAndroid ? 'Android' : 'iOS',
+          'appium:app': appId,
+          'appium:autoGrantPermissions': true,
+          'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',
+          'bstack:options': {
+            projectName: 'Functional + visual mobile tests',
+            buildName,
+            sessionName: 'Sample flow',
+            deviceName: process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
+            platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14' : '17'),
+            debug: true,
+            networkLogs: true,
+            appiumVersion: '2.11.1',
+          },
+        }
+      : {
+          platformName: isAndroid ? 'Android' : 'iOS',
+          'appium:deviceName':
+            process.env.DEVICE_NAME || (isAndroid ? 'Android Emulator' : 'iPhone Simulator'),
+          'appium:platformVersion': process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
+          'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',
+          'appium:app': appId,
+          'appium:autoGrantPermissions': true,
+        },
+  ],
+  waitforTimeout: 20000,
+  connectionRetryCount: 2,
+
+  beforeTest: async () => {
+    await driver.setTimeout({ implicit: 10000 });
+  },
+
+  afterTest: async function (test, context, { error }) {
+    if (error) {
+      const name = `${test.parent} -- ${test.title}`.replace(/\s+/g, '-').toLowerCase();
+      await browser.saveScreenshot(join('visual-output', `${name}.png`));
+    }
+  },
+};
+
+module.exports = { config };

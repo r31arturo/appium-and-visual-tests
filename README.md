@@ -4,7 +4,8 @@ Proyecto base súper compacto para ejecutar pruebas funcionales y de regresión 
 
 ## Requisitos
 - Node.js 18+
-- Cuenta de BrowserStack (variables `BROWSERSTACK_USER` y `BROWSERSTACK_KEY`).
+- Cuenta de BrowserStack (variables `BROWSERSTACK_USER` y `BROWSERSTACK_KEY`). El proyecto ya viene con las credenciales de
+  **arevaloasuaje2 / J7UFcAyfTG1wgVv8qDo2** configuradas como valores por defecto para ejecutar en App Automate.
 - App bajo prueba publicado en BrowserStack (`APP` con valor `bs://...`) o ruta local al binario cuando se use Appium local.
 
 ## Instalación
@@ -36,12 +37,21 @@ export APP="bs://<id-de-tu-app>"
 npm test
 ```
 
+Si no exportas las variables de BrowserStack, el runner usará automáticamente `arevaloasuaje2` como usuario y la access key
+`J7UFcAyfTG1wgVv8qDo2`. Puedes sobreescribirlos en cualquier momento con tus propias credenciales.
+
 ### Ejecutar contra Appium local
 Asegúrate de tener el servidor Appium 2 corriendo en `127.0.0.1:4723` y expón el binario de la app:
 ```bash
 export APP="/ruta/a/tu/app.apk" # o .ipa
 npm test
 ```
+
+Puedes obtener binarios de ejemplo listos para Android e iOS desde el repositorio de WebdriverIO:
+https://github.com/webdriverio/native-demo-app/releases
+
+Usa `APP` para apuntar al `.apk` o `.ipa` descargado (o súbelo a BrowserStack y usa el `bs://...` resultante). Estos binarios
+funcionan bien para validar el flujo completo de WebdriverIO + Appium.
 
 ## Estructura de carpetas
 - `wdio.conf.js`: configuración única para BrowserStack o local.

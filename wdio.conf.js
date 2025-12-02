@@ -17,7 +17,6 @@ if (isBrowserStack) {
     'browserstack',
     {
       testObservability: true,
-      preferScenarioName: true,
     },
   ]);
 } else {

@@ -8,7 +8,7 @@ const isBrowserStack = Boolean(browserStackUser && browserStackKey);
 const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
 const buildName = process.env.BUILD_NAME || 'mobile-functional-visual';
-const appId = process.env.APP || 'bs://<your-app-id-from-browserstack>';
+const appId = process.env.APP || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93';
 
 const services = [];
 

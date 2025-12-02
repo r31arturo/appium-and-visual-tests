@@ -1,6 +1,10 @@
 const { join } = require('node:path');
 
-const isBrowserStack = Boolean(process.env.BROWSERSTACK_USER && process.env.BROWSERSTACK_KEY);
+const defaultBrowserStackUser = 'arevaloasuaje2';
+const defaultBrowserStackKey = 'J7UFcAyfTG1wgVv8qDo2';
+const browserStackUser = process.env.BROWSERSTACK_USER || defaultBrowserStackUser;
+const browserStackKey = process.env.BROWSERSTACK_KEY || defaultBrowserStackKey;
+const isBrowserStack = Boolean(browserStackUser && browserStackKey);
 const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
 const buildName = process.env.BUILD_NAME || 'mobile-functional-visual';
@@ -45,8 +49,8 @@ const config = {
   specs: ['./tests/specs/**/*.e2e.js'],
   maxInstances: 1,
   logLevel: 'info',
-  user: process.env.BROWSERSTACK_USER,
-  key: process.env.BROWSERSTACK_KEY,
+  user: browserStackUser,
+  key: browserStackKey,
   framework: 'mocha',
   reporters: ['spec'],
   mochaOpts: {

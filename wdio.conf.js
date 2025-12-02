@@ -34,7 +34,7 @@ if (isBrowserStack) {
 }
 
 services.push([
-  'image-comparison',
+  'visual',
   {
     baselineFolder: join(process.cwd(), 'visual-baseline'),
     screenshotPath: join(process.cwd(), 'visual-output'),

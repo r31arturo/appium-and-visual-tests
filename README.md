@@ -45,7 +45,10 @@ npm test
 
 ## Estructura de carpetas
 - `wdio.conf.js`: configuración única para BrowserStack o local.
-- `tests/specs/`: specs en Mocha listas para expandirse con más casos.
+- `tests/support/`: helpers mínimos para selectors y flujos repetibles.
+- `tests/specs/smoke/`: pruebas rápidas de estructura y navegación principal.
+- `tests/specs/visual/`: checkpoints visuales que se pueden expandir por vista.
+- `tests/specs/sample-login.e2e.js`: ejemplo base y punto de partida para specs nuevas.
 - `visual-baseline/`: capturas base generadas automáticamente.
 - `visual-output/`: capturas con diferencias y logs visuales.
 

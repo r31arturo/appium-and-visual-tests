@@ -25,7 +25,7 @@
     "@wdio/spec-reporter": "^8.40.0",
     "appium": "^2.10.0",
     "mocha": "^10.7.3",
-    "wdio-image-comparison-service": "^5.4.0",
+    "@wdio/image-comparison-service": "^8.40.0",
     "webdriverio": "^8.40.0"
   }
 }

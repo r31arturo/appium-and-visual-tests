@@ -11,7 +11,7 @@ describe('Minimal mobile flow with visual checkpoints', () => {
     // Save and compare the whole screen for a quick visual regression check
     await browser.saveScreen('landing');
     const diff = await browser.checkScreen('landing', { hideElements: [] });
-    expect(diff).to.equal(0);
+    expect(diff).toBe(0);
   });
 
   it('performs a simple login interaction and validates UI details', async () => {
@@ -34,6 +34,6 @@ describe('Minimal mobile flow with visual checkpoints', () => {
 
     // Pixel-perfect comparison of a critical element
     const mismatch = await browser.checkElement(home, 'home-screen');
-    expect(mismatch).to.equal(0);
+    expect(mismatch).toBe(0);
   });
 });

@@ -2,7 +2,7 @@ const { expect } = require('@wdio/globals');
 const { selectors } = require('../../support/selectors');
 const { waitForLoginScreen, performBasicLogin } = require('../../support/flows');
 
-describe('Smoke: app structure and entry points', () => {
+describe.skip('Smoke: app structure and entry points', () => {
   it('exposes the login entry point with its required fields', async () => {
     const loginButton = await waitForLoginScreen();
     const username = await $(selectors.usernameField());

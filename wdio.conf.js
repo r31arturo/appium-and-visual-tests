@@ -64,20 +64,19 @@ const config = {
           'appium:app': appId,
           'appium:autoGrantPermissions': true,
           'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',
-          'bstack:options': {
-            projectName: 'Functional + visual mobile tests',
-            buildName,
-            sessionName: 'Sample flow',
-            deviceName: process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
-            platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14' : '17'),
-            debug: true,
-            networkLogs: true,
-            appiumVersion: '2.11.1',
-          },
-        }
-      : {
-          platformName: isAndroid ? 'Android' : 'iOS',
-          'appium:deviceName':
+            'bstack:options': {
+              projectName: 'Functional + visual mobile tests',
+              buildName,
+              sessionName: 'Sample flow',
+              deviceName: process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
+              platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14' : '17'),
+              debug: true,
+              networkLogs: true,
+            },
+          }
+        : {
+            platformName: isAndroid ? 'Android' : 'iOS',
+            'appium:deviceName':
             process.env.DEVICE_NAME || (isAndroid ? 'Android Emulator' : 'iPhone Simulator'),
           'appium:platformVersion': process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
           'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',

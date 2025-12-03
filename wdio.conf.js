@@ -69,7 +69,7 @@ const config = {
               buildName,
               sessionName: 'Sample flow',
               deviceName: process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
-              platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14' : '17'),
+              platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
               debug: true,
               networkLogs: true,
             },

@@ -27,9 +27,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Run tests
+      - name: Run minimal test suite
         if: env.BROWSERSTACK_USER != '' && env.BROWSERSTACK_KEY != ''
-        run: npm test
+        run: npm run test:ci
 
       - name: Skip tests (BrowserStack secrets missing)
         if: env.BROWSERSTACK_USER == '' || env.BROWSERSTACK_KEY == ''

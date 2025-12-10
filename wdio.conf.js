@@ -12,6 +12,24 @@ const appId = process.env.APP || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93'
 
 const services = [];
 
+const updateBrowserStackStatus = async (status, reason) => {
+  if (!isBrowserStack) {
+    return;
+  }
+
+  const executorPayload = `browserstack_executor: ${JSON.stringify({
+    action: 'setSessionStatus',
+    arguments: { status, reason },
+  })}`;
+
+  try {
+    await browser.executeScript(executorPayload, []);
+    console.log(`[BrowserStack] Session marked as ${status}: ${reason}`);
+  } catch (error) {
+    console.warn('[BrowserStack] Failed to update session status:', error.message);
+  }
+};
+
 if (isBrowserStack) {
   services.push([
     'browserstack',
@@ -92,6 +110,13 @@ const config = {
   },
 
   afterTest: async function (test, context, { error }) {
+    const testStatus = error ? 'failed' : 'passed';
+    const reason = error
+      ? `${test.title} failed: ${error.message}`
+      : `${test.title} passed`;
+
+    await updateBrowserStackStatus(testStatus, reason);
+
     if (error) {
       const name = `${test.parent} -- ${test.title}`.replace(/\s+/g, '-').toLowerCase();
       await browser.saveScreenshot(join('visual-output', `${name}.png`));

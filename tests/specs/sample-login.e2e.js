@@ -8,7 +8,7 @@ describe('Minimal mobile flow with visual checkpoints', () => {
     // Save and compare the whole screen for a quick visual regression check
     await browser.saveScreen('landing');
     const diff = await browser.checkScreen('landing', { hideElements: [] });
-    expect(diff).to.equal(0);
+    expect(diff).toBe(0);
   });
 
   it('performs the login flow and dismisses the success alert', async () => {

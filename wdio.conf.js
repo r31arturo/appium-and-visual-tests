@@ -92,6 +92,22 @@ const config = {
   },
 
   afterTest: async function (test, context, { error }) {
+    const status = error ? 'failed' : 'passed';
+    const reason = error?.message ? error.message : 'All assertions passed';
+
+    if (isBrowserStack) {
+      const payload = {
+        action: 'setSessionStatus',
+        arguments: {
+          status,
+          reason: reason.replace(/"/g, "'"),
+        },
+      };
+
+      await browser.executeScript(`browserstack_executor: ${JSON.stringify(payload)}`);
+      console.log(`[CI] BrowserStack session marked as ${status}: ${reason}`);
+    }
+
     if (error) {
       const name = `${test.parent} -- ${test.title}`.replace(/\s+/g, '-').toLowerCase();
       await browser.saveScreenshot(join('visual-output', `${name}.png`));

@@ -42,6 +42,8 @@ const closeBrowserStackSession = async (result) => {
 
   try {
     await browser.deleteSession();
+    browser.sessionId = null;
+    browser.deleteSession = async () => {};
     console.log('[BrowserStack] Session closed early to avoid idle time');
   } catch (error) {
     console.warn('[BrowserStack] Unable to close session early:', error.message);

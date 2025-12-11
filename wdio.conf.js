@@ -111,6 +111,8 @@ const config = {
       ? {
           platformName: isAndroid ? 'Android' : 'iOS',
           'appium:app': appId,
+          'appium:autoAcceptAlerts': false,
+          'appium:autoDismissAlerts': false,
           'appium:autoGrantPermissions': true,
           'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',
           'bstack:options': {

@@ -12,6 +12,17 @@ const appId = process.env.APP || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93'
 
 const services = [];
 
+let suiteHasFailures = false;
+
+const withTimeout = async (promise, ms, label) => {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+};
+
 const updateBrowserStackStatus = async (status, reason) => {
   if (!isBrowserStack) {
     return;
@@ -23,25 +34,25 @@ const updateBrowserStackStatus = async (status, reason) => {
   })}`;
 
   try {
-    await browser.executeScript(executorPayload, []);
+    await withTimeout(browser.executeScript(executorPayload, []), 4000, 'setSessionStatus');
     console.log(`[BrowserStack] Session marked as ${status}: ${reason}`);
   } catch (error) {
     console.warn('[BrowserStack] Failed to update session status:', error.message);
   }
 };
 
-const closeBrowserStackSession = async (result) => {
+const closeBrowserStackSession = async (hasFailures) => {
   if (!isBrowserStack || !browser?.sessionId) {
     return;
   }
 
-  const status = result === 0 ? 'passed' : 'failed';
-  const reason = result === 0 ? 'Suite finished successfully' : 'Suite encountered failures';
+  const status = hasFailures ? 'failed' : 'passed';
+  const reason = hasFailures ? 'Suite encountered failures' : 'Suite finished successfully';
 
   await updateBrowserStackStatus(status, reason);
 
   try {
-    await browser.deleteSession();
+    await withTimeout(browser.deleteSession(), 4000, 'deleteSession');
     browser.sessionId = null;
     browser.deleteSession = async () => {};
     console.log('[BrowserStack] Session closed early to avoid idle time');
@@ -132,12 +143,7 @@ const config = {
   },
 
   afterTest: async function (test, context, { error }) {
-    const testStatus = error ? 'failed' : 'passed';
-    const reason = error
-      ? `${test.title} failed: ${error.message}`
-      : `${test.title} passed`;
-
-    await updateBrowserStackStatus(testStatus, reason);
+    suiteHasFailures = suiteHasFailures || Boolean(error);
 
     if (error) {
       const name = `${test.parent} -- ${test.title}`.replace(/\s+/g, '-').toLowerCase();
@@ -145,7 +151,7 @@ const config = {
     }
   },
 
-  after: closeBrowserStackSession,
+  after: () => closeBrowserStackSession(suiteHasFailures),
 };
 
 module.exports = { config };

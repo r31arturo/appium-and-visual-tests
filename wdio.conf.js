@@ -1,17 +1,15 @@
 const { join } = require('node:path');
 
-const offlineMode = process.env.OFFLINE_MODE === 'true';
 const browserStackUser = 'arevaloasuaje2';
 const browserStackKey = 'J7UFcAyfTG1wgVv8qDo2';
-const useBrowserStack = !offlineMode && process.env.USE_BROWSERSTACK !== 'false';
-const isBrowserStack = useBrowserStack && Boolean(browserStackUser && browserStackKey);
+const isBrowserStack = Boolean(browserStackUser && browserStackKey);
 const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
 const buildName = process.env.BUILD_NAME || 'mobile-functional-visual';
 const appId = process.env.APP || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93';
 
 const services = [];
-const specs = offlineMode ? [] : ['./tests/specs/**/*.spec.js'];
+const specs = ['./tests/specs/**/*.spec.js'];
 
 let suiteHasFailures = false;
 
@@ -62,24 +60,11 @@ const closeBrowserStackSession = async (hasFailures) => {
   }
 };
 
-if (offlineMode) {
-  // No remote services required when the suite is skipped.
-} else if (isBrowserStack) {
+if (isBrowserStack) {
   services.push([
     'browserstack',
     {
       testObservability: true,
-    },
-  ]);
-} else {
-  services.push([
-    'appium',
-    {
-      args: {
-        address: '127.0.0.1',
-        port: 4723,
-      },
-      command: 'appium',
     },
   ]);
 }
@@ -109,40 +94,25 @@ const config = {
   },
   services,
   baseUrl: 'http://localhost',
-  capabilities: offlineMode
-    ? []
-    : [
-        isBrowserStack
-          ? {
-              platformName: isAndroid ? 'Android' : 'iOS',
-              'appium:app': appId,
-              'appium:autoAcceptAlerts': false,
-              'appium:autoDismissAlerts': false,
-              'appium:autoGrantPermissions': true,
-              'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',
-              'bstack:options': {
-                projectName: 'Functional + visual mobile tests',
-                buildName,
-                sessionName: 'Sample flow',
-                deviceName:
-                  process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
-                platformVersion:
-                  process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
-                debug: true,
-                networkLogs: true,
-              },
-            }
-          : {
-              platformName: isAndroid ? 'Android' : 'iOS',
-              'appium:deviceName':
-                process.env.DEVICE_NAME || (isAndroid ? 'Android Emulator' : 'iPhone Simulator'),
-              'appium:platformVersion':
-                process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
-              'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',
-              'appium:app': appId,
-              'appium:autoGrantPermissions': true,
-            },
-      ],
+  capabilities: [
+    {
+      platformName: isAndroid ? 'Android' : 'iOS',
+      'appium:app': appId,
+      'appium:autoAcceptAlerts': false,
+      'appium:autoDismissAlerts': false,
+      'appium:autoGrantPermissions': true,
+      'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',
+      'bstack:options': {
+        projectName: 'Functional + visual mobile tests',
+        buildName,
+        sessionName: 'Sample flow',
+        deviceName: process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
+        platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
+        debug: true,
+        networkLogs: true,
+      },
+    },
+  ],
   waitforTimeout: 20000,
   connectionRetryCount: 2,
 

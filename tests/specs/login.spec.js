@@ -4,7 +4,17 @@ const {
   loginAndDismissAlert,
 } = require('../flows/login.flow');
 
+const offlineMode = process.env.OFFLINE_MODE === 'true';
+
 describe('Minimal mobile flow with visual checkpoints', () => {
+  if (offlineMode) {
+    it('skips the mobile flow in offline mode', function () {
+      this.skip();
+    });
+
+    return;
+  }
+
   it('opens the app and captures the landing view', async () => {
     const diff = await captureLanding();
     expect(diff).toBe(0);

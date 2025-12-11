@@ -58,8 +58,12 @@ class LoginScreen {
   }
 
   async dismissSuccessAlert() {
-    await this.alertTitle.waitForDisplayed({ timeout: 10000 });
+    await expect(this.alertTitle).toBeExisting({ wait: 5000 });
+    await expect(this.alertTitle).toBeDisplayed({ wait: 5000 });
+    await expect(this.alertOkButton).toBeExisting({ wait: 5000 });
+
     await this.alertOkButton.click();
+
     await expect(this.alertTitle).not.toBeDisplayed({ wait: 10000 });
   }
 }

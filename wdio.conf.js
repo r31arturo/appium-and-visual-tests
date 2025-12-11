@@ -1,9 +1,7 @@
 const { join } = require('node:path');
 
-const defaultBrowserStackUser = 'arevaloasuaje2';
-const defaultBrowserStackKey = 'J7UFcAyfTG1wgVv8qDo2';
-const browserStackUser = process.env.BROWSERSTACK_USER || defaultBrowserStackUser;
-const browserStackKey = process.env.BROWSERSTACK_KEY || defaultBrowserStackKey;
+const browserStackUser = 'arevaloasuaje2';
+const browserStackKey = 'J7UFcAyfTG1wgVv8qDo2';
 const isBrowserStack = Boolean(browserStackUser && browserStackKey);
 const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
@@ -11,6 +9,18 @@ const buildName = process.env.BUILD_NAME || 'mobile-functional-visual';
 const appId = process.env.APP || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93';
 
 const services = [];
+const specs = ['./tests/specs/**/*.spec.js'];
+
+let suiteHasFailures = false;
+
+const withTimeout = async (promise, ms, label) => {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+};
 
 const updateBrowserStackStatus = async (status, reason) => {
   if (!isBrowserStack) {
@@ -23,10 +33,30 @@ const updateBrowserStackStatus = async (status, reason) => {
   })}`;
 
   try {
-    await browser.executeScript(executorPayload, []);
+    await withTimeout(browser.executeScript(executorPayload, []), 4000, 'setSessionStatus');
     console.log(`[BrowserStack] Session marked as ${status}: ${reason}`);
   } catch (error) {
     console.warn('[BrowserStack] Failed to update session status:', error.message);
+  }
+};
+
+const closeBrowserStackSession = async (hasFailures) => {
+  if (!isBrowserStack || !browser?.sessionId) {
+    return;
+  }
+
+  const status = hasFailures ? 'failed' : 'passed';
+  const reason = hasFailures ? 'Suite encountered failures' : 'Suite finished successfully';
+
+  await updateBrowserStackStatus(status, reason);
+
+  try {
+    await withTimeout(browser.deleteSession(), 4000, 'deleteSession');
+    browser.sessionId = null;
+    browser.deleteSession = async () => {};
+    console.log('[BrowserStack] Session closed early to avoid idle time');
+  } catch (error) {
+    console.warn('[BrowserStack] Unable to close session early:', error.message);
   }
 };
 
@@ -35,17 +65,6 @@ if (isBrowserStack) {
     'browserstack',
     {
       testObservability: true,
-    },
-  ]);
-} else {
-  services.push([
-    'appium',
-    {
-      args: {
-        address: '127.0.0.1',
-        port: 4723,
-      },
-      command: 'appium',
     },
   ]);
 }
@@ -63,7 +82,7 @@ services.push([
 
 const config = {
   runner: 'local',
-  specs: ['./tests/specs/**/*.spec.js'],
+  specs,
   maxInstances: 1,
   logLevel: 'info',
   user: browserStackUser,
@@ -76,33 +95,23 @@ const config = {
   services,
   baseUrl: 'http://localhost',
   capabilities: [
-    isBrowserStack
-      ? {
-          platformName: isAndroid ? 'Android' : 'iOS',
-          'appium:app': appId,
-          'appium:autoGrantPermissions': true,
-          'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',
-          'bstack:options': {
-            projectName: 'Functional + visual mobile tests',
-            buildName,
-            sessionName: 'Sample flow',
-            deviceName:
-              process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
-            platformVersion:
-              process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
-            debug: true,
-            networkLogs: true,
-          },
-        }
-      : {
-          platformName: isAndroid ? 'Android' : 'iOS',
-          'appium:deviceName':
-            process.env.DEVICE_NAME || (isAndroid ? 'Android Emulator' : 'iPhone Simulator'),
-          'appium:platformVersion': process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
-          'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',
-          'appium:app': appId,
-          'appium:autoGrantPermissions': true,
-        },
+    {
+      platformName: isAndroid ? 'Android' : 'iOS',
+      'appium:app': appId,
+      'appium:autoAcceptAlerts': false,
+      'appium:autoDismissAlerts': false,
+      'appium:autoGrantPermissions': true,
+      'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',
+      'bstack:options': {
+        projectName: 'Functional + visual mobile tests',
+        buildName,
+        sessionName: 'Sample flow',
+        deviceName: process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
+        platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
+        debug: true,
+        networkLogs: true,
+      },
+    },
   ],
   waitforTimeout: 20000,
   connectionRetryCount: 2,
@@ -112,18 +121,15 @@ const config = {
   },
 
   afterTest: async function (test, context, { error }) {
-    const testStatus = error ? 'failed' : 'passed';
-    const reason = error
-      ? `${test.title} failed: ${error.message}`
-      : `${test.title} passed`;
-
-    await updateBrowserStackStatus(testStatus, reason);
+    suiteHasFailures = suiteHasFailures || Boolean(error);
 
     if (error) {
       const name = `${test.parent} -- ${test.title}`.replace(/\s+/g, '-').toLowerCase();
       await browser.saveScreenshot(join('visual-output', `${name}.png`));
     }
   },
+
+  after: () => closeBrowserStackSession(suiteHasFailures),
 };
 
 module.exports = { config };

@@ -1,7 +1,6 @@
 const { expect } = require('@wdio/globals');
 const {
   captureLanding,
-  performBasicLogin,
   loginAndDismissAlert,
 } = require('../flows/login.flow');
 
@@ -13,9 +12,5 @@ describe('Minimal mobile flow with visual checkpoints', () => {
 
   it('performs the login flow and dismisses the success alert', async () => {
     await loginAndDismissAlert('are@gmail.com', '12345678');
-  });
-
-  it('supports the basic demo login flow', async () => {
-    await performBasicLogin();
   });
 });

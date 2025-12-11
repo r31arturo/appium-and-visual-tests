@@ -1,5 +1,5 @@
 const { expect } = require('@wdio/globals');
-const { performBasicLogin } = require('../../support/flows');
+const { performBasicLogin } = require('../../flows/login.flow');
 
 describe.skip('Visual: home experience stays minimal and consistent', () => {
   it('captures and compares the authenticated home view', async () => {

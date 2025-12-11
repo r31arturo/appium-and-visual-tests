@@ -30,6 +30,21 @@ const updateBrowserStackStatus = async (status, reason) => {
   }
 };
 
+const closeBrowserStackSession = async (status, reason) => {
+  if (!isBrowserStack || !browser?.sessionId) {
+    return;
+  }
+
+  await updateBrowserStackStatus(status, reason);
+
+  try {
+    await browser.deleteSession();
+    console.log('[BrowserStack] Session closed to avoid idle recording time');
+  } catch (error) {
+    console.warn('[BrowserStack] Failed to close session early:', error.message);
+  }
+};
+
 if (isBrowserStack) {
   services.push([
     'browserstack',
@@ -92,6 +107,7 @@ const config = {
               process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
             debug: true,
             networkLogs: true,
+            idleTimeout: 30,
           },
         }
       : {
@@ -123,6 +139,16 @@ const config = {
       const name = `${test.parent} -- ${test.title}`.replace(/\s+/g, '-').toLowerCase();
       await browser.saveScreenshot(join('visual-output', `${name}.png`));
     }
+  },
+
+  after: async function (result) {
+    const suiteStatus = result === 0 ? 'passed' : 'failed';
+    const reason =
+      result === 0
+        ? 'All specs passed; ending BrowserStack session immediately.'
+        : 'At least one spec failed; ending BrowserStack session immediately.';
+
+    await closeBrowserStackSession(suiteStatus, reason);
   },
 };
 

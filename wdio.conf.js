@@ -30,6 +30,24 @@ const updateBrowserStackStatus = async (status, reason) => {
   }
 };
 
+const closeBrowserStackSession = async (result) => {
+  if (!isBrowserStack || !browser?.sessionId) {
+    return;
+  }
+
+  const status = result === 0 ? 'passed' : 'failed';
+  const reason = result === 0 ? 'Suite finished successfully' : 'Suite encountered failures';
+
+  await updateBrowserStackStatus(status, reason);
+
+  try {
+    await browser.deleteSession();
+    console.log('[BrowserStack] Session closed early to avoid idle time');
+  } catch (error) {
+    console.warn('[BrowserStack] Unable to close session early:', error.message);
+  }
+};
+
 if (isBrowserStack) {
   services.push([
     'browserstack',
@@ -124,6 +142,8 @@ const config = {
       await browser.saveScreenshot(join('visual-output', `${name}.png`));
     }
   },
+
+  after: closeBrowserStackSession,
 };
 
 module.exports = { config };

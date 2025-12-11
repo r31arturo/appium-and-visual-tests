@@ -5,7 +5,7 @@
   "main": "wdio.conf.js",
   "scripts": {
     "test": "wdio run ./wdio.conf.js",
-    "test:ci": "wdio run ./wdio.conf.js --spec ./tests/specs/sample-login.e2e.js"
+    "test:ci": "wdio run ./wdio.conf.js --spec ./tests/specs/login.spec.js"
   },
   "keywords": [
     "appium",

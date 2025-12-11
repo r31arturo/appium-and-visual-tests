@@ -4,8 +4,7 @@ Proyecto base súper compacto para ejecutar pruebas funcionales y de regresión 
 
 ## Requisitos
 - Node.js 18+
-- Cuenta de BrowserStack (variables `BROWSERSTACK_USER` y `BROWSERSTACK_KEY`). El proyecto ya viene con las credenciales de
-  **arevaloasuaje2 / J7UFcAyfTG1wgVv8qDo2** configuradas como valores por defecto para ejecutar en App Automate.
+- Cuenta de BrowserStack (variables `BROWSERSTACK_USER` y `BROWSERSTACK_KEY`). El proyecto ya viene con las credenciales de **arevaloasuaje2 / J7UFcAyfTG1wgVv8qDo2** configuradas como valores por defecto para ejecutar en App Automate.
 - App bajo prueba publicado en BrowserStack (`APP` con valor `bs://...`) o ruta local al binario cuando se use Appium local.
 
 ## Instalación
@@ -37,8 +36,7 @@ export APP="bs://<id-de-tu-app>"
 npm test
 ```
 
-Si no exportas las variables de BrowserStack, el runner usará automáticamente `arevaloasuaje2` como usuario y la access key
-`J7UFcAyfTG1wgVv8qDo2`. Puedes sobreescribirlos en cualquier momento con tus propias credenciales.
+Si no exportas las variables de BrowserStack, el runner usará automáticamente `arevaloasuaje2` como usuario y la access key `J7UFcAyfTG1wgVv8qDo2`. Puedes sobreescribirlos en cualquier momento con tus propias credenciales.
 
 ### Ejecutar contra Appium local
 Asegúrate de tener el servidor Appium 2 corriendo en `127.0.0.1:4723` y expón el binario de la app:
@@ -50,25 +48,44 @@ npm test
 Puedes obtener binarios de ejemplo listos para Android e iOS desde el repositorio de WebdriverIO:
 https://github.com/webdriverio/native-demo-app/releases
 
-Usa `APP` para apuntar al `.apk` o `.ipa` descargado (o súbelo a BrowserStack y usa el `bs://...` resultante). Estos binarios
-funcionan bien para validar el flujo completo de WebdriverIO + Appium.
+Usa `APP` para apuntar al `.apk` o `.ipa` descargado (o súbelo a BrowserStack y usa el `bs://...` resultante). Estos binarios funcionan bien para validar el flujo completo de WebdriverIO + Appium.
 
-## Estructura de carpetas
-- `wdio.conf.js`: configuración única para BrowserStack o local.
-- `tests/support/`: helpers mínimos para selectors y flujos repetibles.
-- `tests/specs/smoke/`: pruebas rápidas de estructura y navegación principal.
-- `tests/specs/visual/`: checkpoints visuales que se pueden expandir por vista.
-- `tests/specs/sample-login.e2e.js`: ejemplo base y punto de partida para specs nuevas.
-- `visual-baseline/`: capturas base generadas automáticamente.
-- `visual-output/`: capturas con diferencias y logs visuales.
+## Estructura POM + Flows
+La suite está organizada en **Page Objects + Flows**, sin Cucumber ni Screenplay:
+
+```
+tests/
+├── flows/          # Flujos de negocio muy finos que combinan varias pantallas
+│   └── login.flow.js
+├── screens/        # Page Objects: una clase por pantalla con getters y métodos breves
+│   ├── home.screen.js
+│   ├── landing.screen.js
+│   └── login.screen.js
+├── specs/          # Casos de prueba Mocha que usan los flows
+│   └── login.spec.js
+└── utils/
+    └── selectors.js # Helpers para estandarizar los locators (iOS predicate / Android UiSelector)
+```
+
+- **Page Objects (`tests/screens/`)**: encapsulan los locators (getters) y acciones cortas como `login(user, pass)` o `waitForDisplayed()`.
+- **Flows (`tests/flows/`)**: combinan pasos de varias pantallas en funciones reutilizables, por ejemplo `performBasicLogin()`.
+- **Specs (`tests/specs/`)**: describen los escenarios usando los flows y las aserciones de `expect-webdriverio`.
+- **Selectors utils (`tests/utils/selectors.js`)**: documentan el formato de plantillas iOS (`-ios predicate string:name == "<...>"`) y Android (`android=new UiSelector().resourceId("<...>")`) para mantener consistencia en los locators.
+- **Visual baselines**: las capturas base viven en `visual-baseline/` y las diferencias se guardan en `visual-output/`.
+
+## Cómo agregar un test nuevo
+1. **Crear/actualizar la pantalla** en `tests/screens/` con getters y métodos cortos. Usa los helpers de `tests/utils/selectors.js` para mantener el formato de los locators de iOS/Android.
+2. **Crear un flow** en `tests/flows/` que combine los pasos necesarios (abrir la pantalla, completar formularios, validar waits, etc.).
+3. **Escribir el spec** en `tests/specs/` (formato `*.spec.js`) importando el flow. Usa `describe/it` de Mocha y las expectativas de `expect` ya incluidas por WebdriverIO.
+4. (Opcional) **Agregar checkpoints visuales** con `browser.saveScreen()` y `browser.checkScreen()` dentro del flow o del spec para generar/comparar baselines.
 
 ## Visual testing pixel-perfect
-Se usa `wdio-image-comparison-service` para validar la UI. Ejemplos en `tests/specs/sample-login.e2e.js`:
-- `browser.saveScreen()` para generar baseline.
-- `browser.checkScreen()` y `browser.checkElement()` para comparar que no existan diferencias (se espera `0`).
+Se usa `wdio-image-comparison-service` para validar la UI. El flujo de login incluye ejemplos de captura y comparación (`captureLanding()` en `tests/flows/login.flow.js`).
+- `browser.saveScreen()` genera la baseline si no existe.
+- `browser.checkScreen()` o `browser.checkElement()` devuelven `0` cuando no hay diferencias visuales.
 
 ## Reporte
-Se usa el `spec` reporter de WebdriverIO para mantener la salida limpia y legible. Puedes cambiar o agregar reporters en `wdio.conf.js` sin agregar frameworks adicionales como Cucumber.
+El reporter `spec` de WebdriverIO mantiene la salida limpia y legible. Puedes modificar los reporters en `wdio.conf.js` sin agregar frameworks extra como Cucumber.
 
 ## Agregar más pruebas
-Crea nuevos archivos `*.e2e.js` dentro de `tests/specs/` usando Mocha y los comandos de WebdriverIO. No se necesitan hooks adicionales; las expectativas vienen de `expect-webdriverio` que ya está disponible en el runner.
+Usa el patrón anterior para crear archivos `*.spec.js` dentro de `tests/specs/`. No se necesitan hooks adicionales; las expectativas vienen de `expect-webdriverio`.

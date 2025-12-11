@@ -58,17 +58,11 @@ class LoginScreen {
   }
 
   async dismissSuccessAlert() {
-    const alertExists = await this.alertTitle.waitForExist({ timeout: 5000 }).catch(() => false);
+    await expect(this.alertTitle).toBeExisting({ wait: 5000 });
+    await expect(this.alertTitle).toBeDisplayed({ wait: 5000 });
+    await expect(this.alertOkButton).toBeExisting({ wait: 5000 });
 
-    if (!alertExists) {
-      return;
-    }
-
-    const isDisplayed = await this.alertTitle.isDisplayed();
-
-    if (isDisplayed && (await this.alertOkButton.isExisting())) {
-      await this.alertOkButton.click();
-    }
+    await this.alertOkButton.click();
 
     await expect(this.alertTitle).not.toBeDisplayed({ wait: 10000 });
   }

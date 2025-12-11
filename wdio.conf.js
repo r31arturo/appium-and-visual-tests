@@ -1,14 +1,12 @@
 const { join } = require('node:path');
 
-const defaultBrowserStackUser = 'arevaloasuaje2';
-const defaultBrowserStackKey = 'J7UFcAyfTG1wgVv8qDo2';
-const browserStackUser = process.env.BROWSERSTACK_USER || defaultBrowserStackUser;
-const browserStackKey = process.env.BROWSERSTACK_KEY || defaultBrowserStackKey;
+const browserStackUser = 'arevaloasuaje2';
+const browserStackKey = 'J7UFcAyfTG1wgVv8qDo2';
 const isBrowserStack = Boolean(browserStackUser && browserStackKey);
 const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
 const buildName = process.env.BUILD_NAME || 'mobile-functional-visual';
-const appId = process.env.APP || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93';
+const appId = 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93';
 
 const services = [];
 

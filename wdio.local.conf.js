@@ -12,11 +12,12 @@ const services = [
   [
     'appium',
     {
-      command: 'appium',
+      logPath: './',
       args: {
+        basePath: '/',
         address: '127.0.0.1',
         port: 4723,
-        logLevel: 'error',
+        logLevel: 'info',
       },
     },
   ],
@@ -24,6 +25,7 @@ const services = [
 
 const capabilities = [
   {
+    maxInstances: 1,
     platformName: isAndroid ? 'Android' : 'iOS',
     'appium:app': appId,
     'appium:autoAcceptAlerts': false,

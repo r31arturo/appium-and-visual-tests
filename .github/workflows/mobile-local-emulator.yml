@@ -19,6 +19,18 @@ jobs:
       - name: Install deps
         run: npm install
 
+      - name: Cache Appium drivers
+        uses: actions/cache@v4
+        with:
+          path: ~/.appium
+          key: appium-${{ runner.os }}
+
+      - name: Install Appium driver
+        run: |
+          npx appium --version
+          npx appium driver install uiautomator2
+          npx appium driver list --installed
+
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

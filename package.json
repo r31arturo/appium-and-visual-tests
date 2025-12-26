@@ -4,8 +4,10 @@
   "description": "Minimal WebdriverIO + Appium mobile functional and visual test harness",
   "main": "wdio.conf.js",
   "scripts": {
-    "test": "wdio run ./wdio.conf.js",
-    "test:ci": "wdio run ./wdio.conf.js --spec ./tests/specs/login.spec.js"
+    "test": "npm run test:local",
+    "test:ci": "wdio run ./wdio.local.conf.js --spec ./tests/specs/login.spec.js",
+    "test:local": "wdio run ./wdio.local.conf.js",
+    "test:bs": "wdio run ./wdio.browserstack.conf.js"
   },
   "keywords": [
     "appium",

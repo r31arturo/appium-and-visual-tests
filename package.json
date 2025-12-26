@@ -2,6 +2,7 @@
   "name": "appium-and-visual-tests",
   "version": "1.0.0",
   "description": "Minimal WebdriverIO + Appium mobile functional and visual test harness",
+  "type": "module",
   "main": "wdio.local.conf.js",
   "scripts": {
     "test": "npm run test:local",

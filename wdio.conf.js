@@ -1,1 +1,1 @@
-module.exports = require('./wdio.local.conf');
+export { config } from './wdio.local.conf.js';

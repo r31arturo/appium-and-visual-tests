@@ -1,9 +1,9 @@
-const { expect } = require('@wdio/globals');
-const {
+import { expect } from '@wdio/globals';
+import {
   iosPredicateName,
   androidResourceId,
   accessibilityId,
-} = require('../utils/selectors');
+} from '../utils/selectors.js';
 
 class LoginScreen {
   get legacyUsernameField() {
@@ -68,4 +68,4 @@ class LoginScreen {
   }
 }
 
-module.exports = new LoginScreen();
+export const LoginScreen = new LoginScreen();

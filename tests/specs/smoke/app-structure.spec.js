@@ -1,8 +1,8 @@
-const { expect } = require('@wdio/globals');
-const LandingScreen = require('../../screens/landing.screen');
-const LoginScreen = require('../../screens/login.screen');
-const HomeScreen = require('../../screens/home.screen');
-const { performBasicLogin } = require('../../flows/login.flow');
+import { expect } from '@wdio/globals';
+import { LandingScreen } from '../../screens/landing.screen.js';
+import { LoginScreen } from '../../screens/login.screen.js';
+import { HomeScreen } from '../../screens/home.screen.js';
+import { performBasicLogin } from '../../helpers/auth.js';
 
 describe('Smoke: app structure and entry points', () => {
   it('exposes the login entry point with its required fields', async () => {
@@ -11,8 +11,8 @@ describe('Smoke: app structure and entry points', () => {
 
     const fields = await LoginScreen.waitForForm();
 
-    expect(await fields.username.isDisplayed()).to.equal(true);
-    expect(await fields.password.isDisplayed()).to.equal(true);
+    await expect(fields.username).toBeDisplayed();
+    await expect(fields.password).toBeDisplayed();
   });
 
   it('navigates to the home area after submitting credentials', async () => {

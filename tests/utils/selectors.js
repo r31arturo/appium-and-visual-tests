@@ -8,8 +8,4 @@ const iosPredicateName = (name) => `-ios predicate string:name == "${name}"`;
 const androidResourceId = (id) => `android=new UiSelector().resourceId("${id}")`;
 const accessibilityId = (id) => `accessibility id:${id}`;
 
-module.exports = {
-  iosPredicateName,
-  androidResourceId,
-  accessibilityId,
-};
+export { iosPredicateName, androidResourceId, accessibilityId };

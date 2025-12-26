@@ -1,4 +1,4 @@
-const { iosPredicateName, accessibilityId } = require('../utils/selectors');
+import { iosPredicateName, accessibilityId } from '../utils/selectors.js';
 
 class LandingScreen {
   get loginButton() {
@@ -19,4 +19,4 @@ class LandingScreen {
   }
 }
 
-module.exports = new LandingScreen();
+export const LandingScreen = new LandingScreen();

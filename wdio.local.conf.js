@@ -1,4 +1,4 @@
-const { createConfig } = require('./wdio.base.conf');
+import { createConfig } from './wdio.base.conf.js';
 
 const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
@@ -44,4 +44,4 @@ const config = createConfig({
   port: 4723,
 });
 
-module.exports = { config };
+export { config };

@@ -1,4 +1,4 @@
-const { iosPredicateName, accessibilityId } = require('../utils/selectors');
+import { iosPredicateName, accessibilityId } from '../utils/selectors.js';
 
 class HomeScreen {
   get homeLabel() {
@@ -10,4 +10,4 @@ class HomeScreen {
   }
 }
 
-module.exports = new HomeScreen();
+export const HomeScreen = new HomeScreen();

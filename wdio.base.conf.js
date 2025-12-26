@@ -1,6 +1,6 @@
-const { join } = require('node:path');
+import { join } from 'node:path';
 
-const specs = ['./tests/specs/**/*.spec.js'];
+const specs = ['./tests/specs/**/*.spec.js', './tests/specs/**/*.spec.mjs'];
 
 const visualService = [
   'visual',
@@ -108,4 +108,4 @@ const createConfig = ({
   };
 };
 
-module.exports = { createConfig };
+export { createConfig };

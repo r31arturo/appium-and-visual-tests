@@ -1,4 +1,4 @@
-const { createConfig } = require('./wdio.base.conf');
+import { createConfig } from './wdio.base.conf.js';
 
 const runTarget = process.env.RUN_TARGET;
 const useBrowserStack = process.env.USE_BROWSERSTACK === 'true';
@@ -61,4 +61,4 @@ const config = createConfig({
   isBrowserStack,
 });
 
-module.exports = { config };
+export { config };

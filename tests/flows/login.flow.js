@@ -1,5 +1,5 @@
-const LandingScreen = require('../screens/landing.screen');
-const LoginScreen = require('../screens/login.screen');
+import { LandingScreen } from '../screens/landing.screen.js';
+import { LoginScreen } from '../screens/login.screen.js';
 
 const captureLanding = async (tag = 'landing') => {
   await LandingScreen.ensureOnLanding();
@@ -14,7 +14,4 @@ const loginAndDismissAlert = async (username, password) => {
   await LoginScreen.dismissSuccessAlert();
 };
 
-module.exports = {
-  captureLanding,
-  loginAndDismissAlert,
-};
+export { captureLanding, loginAndDismissAlert };

@@ -31,12 +31,13 @@ jobs:
 
       - name: Run emulator + tests
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          RUN_TARGET: local
+          APP: ${{ github.workspace }}/app.apk
         with:
           api-level: 34
           target: google_apis
           arch: x86_64
           profile: pixel_6
           script: |
-            export RUN_TARGET=local
-            export APP="$GITHUB_WORKSPACE/app.apk"
             npm run test:local

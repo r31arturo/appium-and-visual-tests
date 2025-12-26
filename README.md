@@ -3,7 +3,7 @@
 Proyecto base súper compacto para ejecutar pruebas funcionales y de regresión visual en Android e iOS usando Appium 2 + WebdriverIO 8 y la Image Comparison Service. Listo para funcionar tanto en BrowserStack como en un servidor Appium local.
 
 ## Requisitos
-- Node.js 18+
+- Node.js 20.19+
 - Cuenta de BrowserStack (variables `BROWSERSTACK_USER` y `BROWSERSTACK_KEY`). El proyecto ya viene con las credenciales de **arevaloasuaje2 / J7UFcAyfTG1wgVv8qDo2** configuradas como valores por defecto para ejecutar en App Automate.
 - App bajo prueba publicado en BrowserStack (`APP` con valor `bs://...`) o ruta local al binario cuando se use Appium local.
 

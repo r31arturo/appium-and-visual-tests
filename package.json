@@ -16,6 +16,9 @@
   ],
   "author": "",
   "license": "MIT",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "devDependencies": {
     "@wdio/appium-service": "^9.20.0",
     "@wdio/browserstack-service": "^9.20.0",

@@ -2,10 +2,11 @@
   "name": "appium-and-visual-tests",
   "version": "1.0.0",
   "description": "Minimal WebdriverIO + Appium mobile functional and visual test harness",
-  "main": "wdio.conf.js",
+  "main": "wdio.local.conf.js",
   "scripts": {
-    "test": "wdio run ./wdio.conf.js",
-    "test:ci": "wdio run ./wdio.conf.js --spec ./tests/specs/login.spec.js"
+    "test": "npm run test:local",
+    "test:local": "wdio run wdio.local.conf.js",
+    "test:bs": "wdio run wdio.browserstack.conf.js"
   },
   "keywords": [
     "appium",

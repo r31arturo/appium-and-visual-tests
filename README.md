@@ -4,7 +4,7 @@ Proyecto base súper compacto para ejecutar pruebas funcionales y de regresión 
 
 ## Requisitos
 - Node.js 18+
-- Cuenta de BrowserStack (variables `BROWSERSTACK_USER` y `BROWSERSTACK_KEY`). El proyecto ya viene con las credenciales de **arevaloasuaje2 / J7UFcAyfTG1wgVv8qDo2** configuradas como valores por defecto para ejecutar en App Automate.
+- Cuenta de BrowserStack (variables `BROWSERSTACK_USER` y `BROWSERSTACK_KEY`) si vas a ejecutar en BrowserStack.
 - App bajo prueba publicado en BrowserStack (`APP` con valor `bs://...`) o ruta local al binario cuando se use Appium local.
 
 ## Instalación
@@ -13,12 +13,17 @@ npm install
 ```
 
 ## Configuración
-Las opciones principales viven en `wdio.conf.js` y se pueden sobreescribir con variables de entorno:
-- `BROWSERSTACK_USER` / `BROWSERSTACK_KEY`: habilitan el servicio de BrowserStack.
-- `APP`: identificador de la app en BrowserStack (`bs://...`) o ruta al binario local.
+Las opciones principales viven en `wdio.base.conf.js` y se consumen desde:
+- `wdio.local.conf.js` (Appium local / emulador)
+- `wdio.browserstack.conf.js` (BrowserStack)
+
+Variables de entorno:
+- `BROWSERSTACK_USER` / `BROWSERSTACK_KEY`: credenciales de BrowserStack.
 - `PLATFORM_NAME`: `Android` o `iOS` (por defecto `Android`).
 - `DEVICE_NAME` / `PLATFORM_VERSION`: para usar un dispositivo/OS específico.
 - `BUILD_NAME`: nombre del build en los reportes.
+- `APP`: ruta local al binario cuando usas Appium local, o identificador de BrowserStack (`bs://...`) cuando usas BrowserStack.
+- `RUN_TARGET=browserstack` o `USE_BROWSERSTACK=true`: habilita BrowserStack en `wdio.browserstack.conf.js`.
 
 Las capturas base se guardan en `visual-baseline/` y las diferencias en `visual-output/`. Si la imagen base no existe se crea automáticamente en la primera ejecución.
 
@@ -26,23 +31,23 @@ Las capturas base se guardan en `visual-baseline/` y las diferencias en `visual-
 ```bash
 npm test
 ```
+Por defecto corre contra Appium local (equivalente a `npm run test:local`).
 
 ### Ejecutar en BrowserStack
 ```bash
+export RUN_TARGET=browserstack
 export BROWSERSTACK_USER="<tu-usuario>"
 export BROWSERSTACK_KEY="<tu-access-key>"
 export APP="bs://<id-de-tu-app>"
 # Opcional: export PLATFORM_NAME="iOS" DEVICE_NAME="iPhone 15" PLATFORM_VERSION="17"
-npm test
+npm run test:bs
 ```
-
-Si no exportas las variables de BrowserStack, el runner usará automáticamente `arevaloasuaje2` como usuario y la access key `J7UFcAyfTG1wgVv8qDo2`. Puedes sobreescribirlos en cualquier momento con tus propias credenciales.
 
 ### Ejecutar contra Appium local
 Asegúrate de tener el servidor Appium 2 corriendo en `127.0.0.1:4723` y expón el binario de la app:
 ```bash
 export APP="/ruta/a/tu/app.apk" # o .ipa
-npm test
+npm run test:local
 ```
 
 Puedes obtener binarios de ejemplo listos para Android e iOS desde el repositorio de WebdriverIO:
@@ -85,7 +90,7 @@ Se usa `wdio-image-comparison-service` para validar la UI. El flujo de login inc
 - `browser.checkScreen()` o `browser.checkElement()` devuelven `0` cuando no hay diferencias visuales.
 
 ## Reporte
-El reporter `spec` de WebdriverIO mantiene la salida limpia y legible. Puedes modificar los reporters en `wdio.conf.js` sin agregar frameworks extra como Cucumber.
+El reporter `spec` de WebdriverIO mantiene la salida limpia y legible. Puedes modificar los reporters en `wdio.base.conf.js` sin agregar frameworks extra como Cucumber.
 
 ## Agregar más pruebas
 Usa el patrón anterior para crear archivos `*.spec.js` dentro de `tests/specs/`. No se necesitan hooks adicionales; las expectativas vienen de `expect-webdriverio`.

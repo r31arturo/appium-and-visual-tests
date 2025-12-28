@@ -1,0 +1,34 @@
+name: "Manual CI (BrowserStack)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform_name:
+        description: "Mobile platform to test"
+        type: choice
+        options:
+          - Android
+          - iOS
+        default: "Android"
+      app:
+        description: "BrowserStack App ID override"
+        type: string
+        required: true
+      spec:
+        description: "Spec file to run"
+        type: string
+        default: "./tests/specs/login.spec.js"
+
+concurrency:
+  group: manual-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Manual install and test
+    uses: ./.github/workflows/browserstack-reusable.yml
+    with:
+      platform_name: ${{ inputs.platform_name }}
+      app_id: ${{ inputs.app }}
+      spec: ${{ inputs.spec }}
+    secrets: inherit

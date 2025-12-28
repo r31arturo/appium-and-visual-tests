@@ -1,0 +1,55 @@
+name: "BrowserStack CI Reusable"
+
+on:
+  workflow_call:
+    inputs:
+      platform_name:
+        description: "Mobile platform to test"
+        type: string
+        default: "Android"
+      app_id:
+        description: "BrowserStack App ID"
+        type: string
+        required: true
+      spec:
+        description: "Spec file to run"
+        type: string
+        default: "./tests/specs/login.spec.js"
+    secrets:
+      BROWSERSTACK_USER:
+        required: true
+      BROWSERSTACK_KEY:
+        required: true
+
+jobs:
+  tests:
+    name: Install and Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          if [[ -f package-lock.json ]]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Run tests
+        env:
+          BROWSERSTACK_USER: ${{ secrets.BROWSERSTACK_USER }}
+          BROWSERSTACK_KEY: ${{ secrets.BROWSERSTACK_KEY }}
+          PLATFORM_NAME: ${{ inputs.platform_name }}
+          APP: ${{ inputs.app_id }}
+        run: npm run test:ci -- --spec "${{ inputs.spec }}"

@@ -64,7 +64,7 @@ if (isBrowserStack) {
   services.push([
     'browserstack',
     {
-      testObservability: true,
+      testObservability: false,
     },
   ]);
 }

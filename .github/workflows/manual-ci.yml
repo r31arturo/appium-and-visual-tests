@@ -26,51 +26,11 @@ concurrency:
 jobs:
   tests:
     name: Manual install and test
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Use Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install dependencies
-        shell: bash
-        run: |
-          if [[ -f package-lock.json ]]; then
-            npm ci
-          else
-            npm install
-          fi
-
-      - name: Validate BrowserStack secrets and resolve app
-        shell: bash
-        run: |
-          if [[ -z "${{ secrets.BROWSERSTACK_USER }}" || -z "${{ secrets.BROWSERSTACK_KEY }}" ]]; then
-            echo "::error::Missing BrowserStack secrets (BROWSERSTACK_USER/BROWSERSTACK_KEY). Configure them in repo settings."
-            exit 1
-          fi
-
-          resolved_app="${{ inputs.app }}"
-          if [[ -z "$resolved_app" ]]; then
-            resolved_app="${{ secrets.BROWSERSTACK_APP_ID }}"
-          fi
-
-          if [[ -z "$resolved_app" ]]; then
-            echo "::error::Missing BrowserStack App ID. Provide inputs.app or configure secrets.BROWSERSTACK_APP_ID."
-            exit 1
-          fi
-
-          {
-            echo "BROWSERSTACK_USER=${{ secrets.BROWSERSTACK_USER }}"
-            echo "BROWSERSTACK_KEY=${{ secrets.BROWSERSTACK_KEY }}"
-            echo "APP=$resolved_app"
-            echo "PLATFORM_NAME=${{ inputs.platform }}"
-          } >> "$GITHUB_ENV"
-
-      - name: Run tests
-        run: npm run test -- --spec "${{ inputs.spec }}"
+    uses: ./.github/workflows/bs-reusable.yml
+    with:
+      platform_name: ${{ inputs.platform }}
+      app_id: ${{ inputs.app != '' && inputs.app || secrets.BROWSERSTACK_APP_ID }}
+      spec: ${{ inputs.spec }}
+    secrets:
+      BROWSERSTACK_USER: ${{ secrets.BROWSERSTACK_USER }}
+      BROWSERSTACK_KEY: ${{ secrets.BROWSERSTACK_KEY }}

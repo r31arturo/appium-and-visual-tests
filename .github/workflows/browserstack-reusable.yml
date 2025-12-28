@@ -6,8 +6,8 @@ on:
       platform_name:
         description: "Mobile platform to test"
         type: string
-        required: true
-      app_id:
+        default: "Android"
+      app:
         description: "BrowserStack App ID"
         type: string
         required: true
@@ -36,30 +36,22 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: package-lock.json
+
+      - name: Ensure package-lock.json exists
+        shell: bash
+        run: |
+          if [[ ! -f package-lock.json ]]; then
+            echo "::error::package-lock.json is required for deterministic installs. Please add it to the repo."
+            exit 1
+          fi
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate BrowserStack secrets and resolve app
-        shell: bash
-        run: |
-          if [[ -z "${{ secrets.BROWSERSTACK_USER }}" || -z "${{ secrets.BROWSERSTACK_KEY }}" ]]; then
-            echo "::error::Missing BrowserStack secrets (BROWSERSTACK_USER/BROWSERSTACK_KEY). Configure them in repo settings."
-            exit 1
-          fi
-
-          if [[ -z "${{ inputs.app_id }}" ]]; then
-            echo "::error::Missing BrowserStack App ID. Provide app_id input or configure secrets.BROWSERSTACK_APP_ID in the caller."
-            exit 1
-          fi
-
-          {
-            echo "BROWSERSTACK_USER=${{ secrets.BROWSERSTACK_USER }}"
-            echo "BROWSERSTACK_KEY=${{ secrets.BROWSERSTACK_KEY }}"
-            echo "APP=${{ inputs.app_id }}"
-            echo "PLATFORM_NAME=${{ inputs.platform_name }}"
-          } >> "$GITHUB_ENV"
-
       - name: Run tests
+        env:
+          BROWSERSTACK_USER: ${{ secrets.BROWSERSTACK_USER }}
+          BROWSERSTACK_KEY: ${{ secrets.BROWSERSTACK_KEY }}
+          PLATFORM_NAME: ${{ inputs.platform_name }}
+          APP: ${{ inputs.app }}
         run: npm run test:ci -- --spec "${{ inputs.spec }}"

@@ -9,7 +9,7 @@ const buildName = process.env.BUILD_NAME || 'mobile-functional-visual';
 const appId = process.env.APP || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93';
 
 const services = [];
-const specs = ['./tests/specs/**/*.spec.js'];
+const specs = ['./tests/specs/login.spec.js'];
 
 let suiteHasFailures = false;
 

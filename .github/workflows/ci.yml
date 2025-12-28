@@ -16,29 +16,42 @@ concurrency:
 
 jobs:
   precheck:
-    name: Validate BrowserStack secrets (PRs)
+    name: Validate BrowserStack secrets
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      can_run: ${{ steps.check.outputs.can_run }}
     steps:
       - name: Ensure secrets are available for BrowserStack
+        id: check
         shell: bash
         run: |
-          if [[ -z "${{ secrets.BROWSERSTACK_USER }}" || -z "${{ secrets.BROWSERSTACK_KEY }}" ]]; then
-            echo "BrowserStack secrets are missing. Skipping BrowserStack tests for this PR."
-          else
-            echo "BrowserStack secrets available."
+          if [[ -n "${BS_USER}" && -n "${BS_KEY}" ]]; then
+            echo "can_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          echo "can_run=false" >> "$GITHUB_OUTPUT"
+
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "BrowserStack secrets missing on non-PR event. Failing."
+            exit 1
+          fi
+
+          echo "BrowserStack secrets missing on PR. Skipping tests."
+          exit 0
+        env:
+          BS_USER: ${{ secrets.BROWSERSTACK_USER }}
+          BS_KEY: ${{ secrets.BROWSERSTACK_KEY }}
 
   tests:
     name: Install and Test
     needs: precheck
-    if: github.event_name != 'pull_request' || (secrets.BROWSERSTACK_USER != '' && secrets.BROWSERSTACK_KEY != '')
+    if: ${{ needs.precheck.outputs.can_run == 'true' }}
     uses: ./.github/workflows/browserstack-reusable.yml
     with:
       platform_name: ${{ vars.PLATFORM_NAME || 'Android' }}
-      app: ${{ secrets.BROWSERSTACK_APP_ID }}
+      app_id: ${{ vars.BROWSERSTACK_APP_ID || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93' }}
       spec: "./tests/specs/login.spec.js"
-    secrets:
-      BROWSERSTACK_USER: ${{ secrets.BROWSERSTACK_USER }}
-      BROWSERSTACK_KEY: ${{ secrets.BROWSERSTACK_KEY }}
+    secrets: inherit

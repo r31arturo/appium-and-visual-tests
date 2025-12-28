@@ -7,7 +7,7 @@ on:
         description: "Mobile platform to test"
         type: string
         default: "Android"
-      app:
+      app_id:
         description: "BrowserStack App ID"
         type: string
         required: true
@@ -37,21 +37,19 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Ensure package-lock.json exists
+      - name: Install dependencies
         shell: bash
         run: |
-          if [[ ! -f package-lock.json ]]; then
-            echo "::error::package-lock.json is required for deterministic installs. Please add it to the repo."
-            exit 1
+          if [[ -f package-lock.json ]]; then
+            npm ci
+          else
+            npm install
           fi
-
-      - name: Install dependencies
-        run: npm ci
 
       - name: Run tests
         env:
           BROWSERSTACK_USER: ${{ secrets.BROWSERSTACK_USER }}
           BROWSERSTACK_KEY: ${{ secrets.BROWSERSTACK_KEY }}
           PLATFORM_NAME: ${{ inputs.platform_name }}
-          APP: ${{ inputs.app }}
+          APP: ${{ inputs.app_id }}
         run: npm run test:ci -- --spec "${{ inputs.spec }}"

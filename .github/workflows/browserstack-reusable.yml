@@ -14,7 +14,7 @@ on:
       spec:
         description: "Spec file to run"
         type: string
-        default: "./tests/specs/login.spec.js"
+        default: ""
     secrets:
       BROWSERSTACK_USER:
         required: true
@@ -52,4 +52,9 @@ jobs:
           BROWSERSTACK_KEY: ${{ secrets.BROWSERSTACK_KEY }}
           PLATFORM_NAME: ${{ inputs.platform_name }}
           APP: ${{ inputs.app_id }}
-        run: npm run test:ci -- --spec "${{ inputs.spec }}"
+        run: |
+          if [[ -n "${{ inputs.spec }}" ]]; then
+            npm run test:ci -- --spec "${{ inputs.spec }}"
+          else
+            npm run test:ci
+          fi

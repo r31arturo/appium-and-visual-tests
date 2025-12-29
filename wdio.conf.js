@@ -1,10 +1,11 @@
 const { join } = require('node:path');
 
-const browserStackUser = process.env.BROWSERSTACK_USER;
-const browserStackKey = process.env.BROWSERSTACK_KEY;
+const browserStackUser = process.env.BROWSERSTACK_USER || process.env.BROWSERSTACK_USERNAME;
+const browserStackKey = process.env.BROWSERSTACK_KEY || process.env.BROWSERSTACK_ACCESS_KEY;
 const isBrowserStack = Boolean(browserStackUser && browserStackKey);
 const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
+const BS_PROJECT_NAME = process.env.BROWSERSTACK_PROJECT_NAME || 'mobile-functional-visual';
 const BS_BUILD_NAME = process.env.BROWSERSTACK_BUILD_NAME || 'mobile-functional-visual';
 const appId = process.env.APP || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93';
 
@@ -104,7 +105,7 @@ const config = {
       'appium:autoGrantPermissions': true,
       'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',
       'bstack:options': {
-        projectName: 'appium-and-visual-tests',
+        projectName: BS_PROJECT_NAME,
         buildName: BS_BUILD_NAME,
         sessionName: 'Sample flow',
         deviceName: process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),

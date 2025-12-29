@@ -53,5 +53,4 @@ jobs:
     with:
       platform_name: ${{ vars.PLATFORM_NAME || 'Android' }}
       app_id: ${{ vars.BROWSERSTACK_APP_ID || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93' }}
-      spec: "./tests/specs/login.spec.js"
     secrets: inherit

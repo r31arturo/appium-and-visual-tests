@@ -4,7 +4,7 @@ Proyecto base súper compacto para ejecutar pruebas funcionales y de regresión 
 
 ## Requisitos
 - Node.js 18+
-- Cuenta de BrowserStack (variables `BROWSERSTACK_USER` y `BROWSERSTACK_KEY`). El proyecto ya viene con las credenciales de **arevaloasuaje2 / J7UFcAyfTG1wgVv8qDo2** configuradas como valores por defecto para ejecutar en App Automate.
+- Cuenta de BrowserStack (variables `BROWSERSTACK_USER`/`BROWSERSTACK_KEY` o `BROWSERSTACK_USERNAME`/`BROWSERSTACK_ACCESS_KEY`).
 - App bajo prueba publicado en BrowserStack (`APP` con valor `bs://...`) o ruta local al binario cuando se use Appium local.
 
 ## Instalación
@@ -15,10 +15,11 @@ npm install
 ## Configuración
 Las opciones principales viven en `wdio.conf.js` y se pueden sobreescribir con variables de entorno:
 - `BROWSERSTACK_USER` / `BROWSERSTACK_KEY`: habilitan el servicio de BrowserStack.
+- `BROWSERSTACK_USERNAME` / `BROWSERSTACK_ACCESS_KEY`: alternativa de nombres para las credenciales.
 - `APP`: identificador de la app en BrowserStack (`bs://...`) o ruta al binario local.
 - `PLATFORM_NAME`: `Android` o `iOS` (por defecto `Android`).
 - `DEVICE_NAME` / `PLATFORM_VERSION`: para usar un dispositivo/OS específico.
-- `BUILD_NAME`: nombre del build en los reportes.
+- `BROWSERSTACK_PROJECT_NAME` / `BROWSERSTACK_BUILD_NAME`: nombre del proyecto/build en BrowserStack (por defecto `mobile-functional-visual`).
 
 Las capturas base se guardan en `visual-baseline/` y las diferencias en `visual-output/`. Si la imagen base no existe se crea automáticamente en la primera ejecución.
 
@@ -35,8 +36,8 @@ export APP="bs://<id-de-tu-app>"
 # Opcional: export PLATFORM_NAME="iOS" DEVICE_NAME="iPhone 15" PLATFORM_VERSION="17"
 npm test
 ```
-
-Si no exportas las variables de BrowserStack, el runner usará automáticamente `arevaloasuaje2` como usuario y la access key `J7UFcAyfTG1wgVv8qDo2`. Puedes sobreescribirlos en cualquier momento con tus propias credenciales.
+### Workflow manual (GitHub Actions)
+Ejecuta el workflow **Manual CI (BrowserStack)** y define el `APP` (y opcionalmente el spec). Requiere secrets `BROWSERSTACK_USER`/`BROWSERSTACK_KEY`. Para cambiar el nombre del build/suite en CI, define `BROWSERSTACK_PROJECT_NAME` y `BROWSERSTACK_BUILD_NAME` como variables del repo.
 
 ### Ejecutar contra Appium local
 Asegúrate de tener el servidor Appium 2 corriendo en `127.0.0.1:4723` y expón el binario de la app:

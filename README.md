@@ -19,7 +19,7 @@ Las opciones principales viven en `wdio.conf.js` y se pueden sobreescribir con v
 - `APP`: identificador de la app en BrowserStack (`bs://...`) o ruta al binario local.
 - `PLATFORM_NAME`: `Android` o `iOS` (por defecto `Android`).
 - `DEVICE_NAME` / `PLATFORM_VERSION`: para usar un dispositivo/OS específico.
-- `BROWSERSTACK_PROJECT_NAME` / `BROWSERSTACK_BUILD_NAME`: nombre del proyecto/build en BrowserStack (por defecto `mobile-functional-visual`).
+- `BROWSERSTACK_PROJECT_NAME` / `BROWSERSTACK_BUILD_NAME`: nombre del proyecto/build en BrowserStack (por defecto `appium-and-visual-tests`).
 - `APPIUM_HOST` / `APPIUM_PORT` / `APPIUM_PATH`: host/puerto/path del servidor Appium local (por defecto `127.0.0.1`, `4723`, `/`).
 - `START_APPIUM`: si es `true`, levanta Appium local con `@wdio/appium-service` antes de ejecutar las pruebas.
 - `TEST_USERNAME` / `TEST_PASSWORD`: credenciales dummy para el flujo de login (por defecto `demo@example.com` / `password`).

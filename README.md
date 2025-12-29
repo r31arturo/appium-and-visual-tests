@@ -24,7 +24,7 @@ Las opciones principales viven en `wdio.conf.js` y se pueden sobreescribir con v
 - `START_APPIUM`: si es `true`, levanta Appium local con `@wdio/appium-service` antes de ejecutar las pruebas.
 - `TEST_USERNAME` / `TEST_PASSWORD`: credenciales dummy para el flujo de login (por defecto `demo@example.com` / `password`).
 
-Las capturas base se guardan en `visual-baseline/` y las diferencias en `visual-output/`. Si la imagen base no existe se crea automáticamente en la primera ejecución.
+Las capturas base se guardan en `visual-baseline/` y las diferencias en `visual-output/`. Para actualizar baselines usa un modo explícito (por ejemplo `UPDATE_VISUAL_BASELINE=true` o un flag equivalente). En CI no se deben autogenerar baselines.
 
 ## Ejecutar pruebas
 ```bash
@@ -103,7 +103,7 @@ tests/
 
 ## Visual testing pixel-perfect
 Se usa `wdio-image-comparison-service` para validar la UI. El flujo de login incluye ejemplos de captura y comparación (`captureLanding()` en `tests/flows/login.flow.js`).
-- `browser.saveScreen()` genera la baseline si no existe.
+- `browser.saveScreen()` crea o actualiza la baseline solo cuando está habilitado un modo explícito de actualización (por ejemplo `UPDATE_VISUAL_BASELINE=true`).
 - `browser.checkScreen()` o `browser.checkElement()` devuelven `0` cuando no hay diferencias visuales.
 
 ## Reporte

@@ -122,12 +122,24 @@ if (isBrowserStack) {
   };
 }
 
+if (!isBrowserStack) {
+  capabilities['appium:deviceName'] =
+    process.env.DEVICE_NAME || (isAndroid ? 'Android Emulator' : 'iPhone Simulator');
+  capabilities['appium:platformVersion'] = process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0');
+}
+
 const config = {
   runner: 'local',
   specs,
   maxInstances: 1,
   logLevel: 'info',
-  ...(isBrowserStack ? { user: browserStackUser, key: browserStackKey } : {}),
+  ...(isBrowserStack
+    ? { user: browserStackUser, key: browserStackKey }
+    : {
+        hostname: process.env.APPIUM_HOST || '127.0.0.1',
+        port: Number(process.env.APPIUM_PORT || 4723),
+        path: process.env.APPIUM_PATH || '/',
+      }),
   framework: 'mocha',
   reporters: ['spec'],
   mochaOpts: {

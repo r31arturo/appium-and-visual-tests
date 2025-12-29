@@ -137,10 +137,10 @@ const config = {
     }
   },
 
-  after: isBrowserStack ? () => closeBrowserStackSession(suiteHasFailures) : undefined,
 };
 
 if (isBrowserStack) {
+  config.after = () => closeBrowserStackSession(suiteHasFailures);
   config.capabilities[0]['bstack:options'] = {
     projectName: process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests',
     buildName: process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests',
@@ -152,11 +152,11 @@ if (isBrowserStack) {
   };
 } else {
   if (!hasAppEnv) {
-    throw new Error('Debes setear APP con ruta local a .apk/.ipa');
+    throw new Error('En modo local debes setear APP con la ruta a un .apk/.ipa');
   }
 
   if (appId.startsWith('bs://')) {
-    throw new Error('En modo local APP debe ser ruta a .apk/.ipa');
+    throw new Error('En modo local APP debe ser una ruta a .apk/.ipa (no puede ser bs://...)');
   }
 
   config.hostname = appiumHost;

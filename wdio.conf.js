@@ -69,6 +69,7 @@ if (isBrowserStack) {
     'browserstack',
     {
       testObservability: false,
+      buildIdentifier: null,
     },
   ]);
 }
@@ -107,8 +108,8 @@ const config = {
       'appium:autoGrantPermissions': true,
       'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',
       'bstack:options': {
-        projectName: BS_PROJECT_NAME,
-        buildName: BS_BUILD_NAME,
+        projectName: process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests',
+        buildName: process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests',
         sessionName: BS_SESSION_NAME,
         deviceName: process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
         platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
@@ -135,5 +136,12 @@ const config = {
 
   after: () => closeBrowserStackSession(suiteHasFailures),
 };
+
+console.log('[BrowserStack config]', {
+  projectName: BS_PROJECT_NAME,
+  buildName: BS_BUILD_NAME,
+  buildIdentifier: null,
+  sessionName: BS_SESSION_NAME,
+});
 
 module.exports = { config };

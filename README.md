@@ -4,7 +4,7 @@ Proyecto base súper compacto para ejecutar pruebas funcionales y de regresión 
 
 ## Requisitos
 - Node.js 18+
-- Cuenta de BrowserStack (variables `BROWSERSTACK_USER`/`BROWSERSTACK_KEY` o `BROWSERSTACK_USERNAME`/`BROWSERSTACK_ACCESS_KEY`).
+- Cuenta de BrowserStack (variables `BROWSERSTACK_USER`/`BROWSERSTACK_KEY` o `BROWSERSTACK_USERNAME`/`BROWSERSTACK_ACCESS_KEY`). Configúralas por variables de entorno o GitHub Secrets, nunca en el repositorio.
 - App bajo prueba publicado en BrowserStack (`APP` con valor `bs://...`) o ruta local al binario cuando se use Appium local.
 
 ## Instalación
@@ -38,6 +38,8 @@ npm test
 ```
 ### Workflow manual (GitHub Actions)
 Ejecuta el workflow **Manual CI (BrowserStack)** y define el `APP` (y opcionalmente el spec). Requiere secrets `BROWSERSTACK_USER`/`BROWSERSTACK_KEY`. Para cambiar el nombre del build/suite en CI, define `BROWSERSTACK_PROJECT_NAME` y `BROWSERSTACK_BUILD_NAME` como variables del repo.
+
+> Nota: si alguna credencial estuvo expuesta públicamente, rótala de inmediato en BrowserStack y actualiza los secrets.
 
 ### Ejecutar contra Appium local
 Asegúrate de tener el servidor Appium 2 corriendo en `127.0.0.1:4723` y expón el binario de la app:

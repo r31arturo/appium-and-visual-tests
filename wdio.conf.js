@@ -66,7 +66,6 @@ if (isBrowserStack) {
     'browserstack',
     {
       testObservability: false,
-      buildIdentifier: '',
     },
   ]);
 }
@@ -107,7 +106,6 @@ const config = {
       'bstack:options': {
         projectName: BS_PROJECT_NAME,
         buildName: BS_BUILD_NAME,
-        sessionName: 'Sample flow',
         deviceName: process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
         platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
         debug: true,

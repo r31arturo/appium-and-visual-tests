@@ -17,7 +17,7 @@ on:
       spec:
         description: "Spec file to run"
         type: string
-        default: "./tests/specs/login.spec.js"
+        default: ""
 
 concurrency:
   group: manual-ci-${{ github.ref }}

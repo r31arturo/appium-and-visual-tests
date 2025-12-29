@@ -1,15 +1,19 @@
 const { join } = require('node:path');
 
-const browserStackUser = 'arevaloasuaje2';
-const browserStackKey = 'J7UFcAyfTG1wgVv8qDo2';
+const browserStackUser = process.env.BROWSERSTACK_USER || process.env.BROWSERSTACK_USERNAME;
+const browserStackKey = process.env.BROWSERSTACK_KEY || process.env.BROWSERSTACK_ACCESS_KEY;
 const isBrowserStack = Boolean(browserStackUser && browserStackKey);
 const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
-const buildName = process.env.BUILD_NAME || 'mobile-functional-visual';
+const BS_PROJECT_NAME = process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests';
+const BS_BUILD_NAME = process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests';
+const BS_SESSION_NAME =
+  process.env.BROWSERSTACK_SESSION_NAME ||
+  `run-${process.env.GITHUB_RUN_ID || process.env.GITHUB_RUN_NUMBER || 'local'}-${new Date().toISOString()}`;
 const appId = process.env.APP || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93';
 
 const services = [];
-const specs = ['./tests/specs/login.spec.js'];
+const specs = ['./tests/specs/**/*.js'];
 
 let suiteHasFailures = false;
 
@@ -65,6 +69,7 @@ if (isBrowserStack) {
     'browserstack',
     {
       testObservability: false,
+      buildIdentifier: null,
     },
   ]);
 }
@@ -103,9 +108,9 @@ const config = {
       'appium:autoGrantPermissions': true,
       'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',
       'bstack:options': {
-        projectName: 'Functional + visual mobile tests',
-        buildName,
-        sessionName: 'Sample flow',
+        projectName: process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests',
+        buildName: process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests',
+        sessionName: BS_SESSION_NAME,
         deviceName: process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
         platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
         debug: true,
@@ -131,5 +136,12 @@ const config = {
 
   after: () => closeBrowserStackSession(suiteHasFailures),
 };
+
+console.log('[BrowserStack config]', {
+  projectName: BS_PROJECT_NAME,
+  buildName: BS_BUILD_NAME,
+  buildIdentifier: null,
+  sessionName: BS_SESSION_NAME,
+});
 
 module.exports = { config };

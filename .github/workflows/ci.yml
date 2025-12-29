@@ -72,27 +72,25 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -no-audio -no-snapshot -gpu swiftshader_indirect
-          script: >-
-            bash -lc '
-              set -u -o pipefail
-              npx appium --port 4723 --base-path / --log-level error --relaxed-security &
-              APPIUM_PID=$!
+          script: |
+            set -u -o pipefail
+            npx appium --port 4723 --base-path / --log-level error --relaxed-security &
+            APPIUM_PID=$!
 
-              EXIT=0
-              READY=0
-              for i in $(seq 1 30); do
-                if curl -sf http://127.0.0.1:4723/status >/dev/null; then READY=1; break; fi
-                sleep 2
-              done
+            EXIT=0
+            READY=0
+            for i in $(seq 1 30); do
+              if curl -sf http://127.0.0.1:4723/status >/dev/null; then READY=1; break; fi
+              sleep 2
+            done
 
-              if [ "$READY" -ne 1 ]; then
-                echo "Appium no respondió en /status"
-                EXIT=1
-              else
-                npm run test:ci:login || EXIT=$?
-              fi
+            if [ "$READY" -ne 1 ]; then
+              echo "Appium no respondió en /status"
+              EXIT=1
+            else
+              npm run test:ci:login || EXIT=$?
+            fi
 
-              kill "$APPIUM_PID" 2>/dev/null || true
-              wait "$APPIUM_PID" 2>/dev/null || true
-              exit "$EXIT"
-            '
+            kill "$APPIUM_PID" 2>/dev/null || true
+            wait "$APPIUM_PID" 2>/dev/null || true
+            exit "$EXIT"

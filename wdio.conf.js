@@ -10,7 +10,23 @@ const BS_BUILD_NAME = process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-
 const BS_SESSION_NAME =
   process.env.BROWSERSTACK_SESSION_NAME ||
   `run-${process.env.GITHUB_RUN_ID || process.env.GITHUB_RUN_NUMBER || 'local'}-${new Date().toISOString()}`;
-const appId = process.env.APP || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93';
+const appId = (() => {
+  if (isBrowserStack) {
+    return process.env.APP || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93';
+  }
+
+  const localApp = process.env.APP;
+
+  if (!localApp) {
+    throw new Error('APP is required for local runs (path to .apk/.ipa)');
+  }
+
+  if (localApp.startsWith('bs://')) {
+    throw new Error('Local runs must not use bs:// BrowserStack app ids');
+  }
+
+  return localApp;
+})();
 
 const services = [];
 const specs = ['./tests/specs/**/*.js'];
@@ -85,13 +101,33 @@ services.push([
   },
 ]);
 
+const capabilities = {
+  platformName: isAndroid ? 'Android' : 'iOS',
+  'appium:app': appId,
+  'appium:autoAcceptAlerts': false,
+  'appium:autoDismissAlerts': false,
+  'appium:autoGrantPermissions': true,
+  'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',
+};
+
+if (isBrowserStack) {
+  capabilities['bstack:options'] = {
+    projectName: process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests',
+    buildName: process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests',
+    sessionName: BS_SESSION_NAME,
+    deviceName: process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
+    platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
+    debug: true,
+    networkLogs: true,
+  };
+}
+
 const config = {
   runner: 'local',
   specs,
   maxInstances: 1,
   logLevel: 'info',
-  user: browserStackUser,
-  key: browserStackKey,
+  ...(isBrowserStack ? { user: browserStackUser, key: browserStackKey } : {}),
   framework: 'mocha',
   reporters: ['spec'],
   mochaOpts: {
@@ -99,25 +135,7 @@ const config = {
   },
   services,
   baseUrl: 'http://localhost',
-  capabilities: [
-    {
-      platformName: isAndroid ? 'Android' : 'iOS',
-      'appium:app': appId,
-      'appium:autoAcceptAlerts': false,
-      'appium:autoDismissAlerts': false,
-      'appium:autoGrantPermissions': true,
-      'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',
-      'bstack:options': {
-        projectName: process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests',
-        buildName: process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests',
-        sessionName: BS_SESSION_NAME,
-        deviceName: process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
-        platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
-        debug: true,
-        networkLogs: true,
-      },
-    },
-  ],
+  capabilities: [capabilities],
   waitforTimeout: 20000,
   connectionRetryCount: 2,
 
@@ -134,14 +152,17 @@ const config = {
     }
   },
 
-  after: () => closeBrowserStackSession(suiteHasFailures),
 };
 
-console.log('[BrowserStack config]', {
-  projectName: BS_PROJECT_NAME,
-  buildName: BS_BUILD_NAME,
-  buildIdentifier: null,
-  sessionName: BS_SESSION_NAME,
-});
+if (isBrowserStack) {
+  config.after = () => closeBrowserStackSession(suiteHasFailures);
+
+  console.log('[BrowserStack config]', {
+    projectName: BS_PROJECT_NAME,
+    buildName: BS_BUILD_NAME,
+    buildIdentifier: null,
+    sessionName: BS_SESSION_NAME,
+  });
+}
 
 module.exports = { config };

@@ -7,8 +7,10 @@ const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
 const BS_PROJECT_NAME = process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests';
 const BS_BUILD_NAME = process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests';
+const BS_SESSION_NAME =
+  process.env.BROWSERSTACK_SESSION_NAME ||
+  `run-${process.env.GITHUB_RUN_ID || process.env.GITHUB_RUN_NUMBER || 'local'}-${new Date().toISOString()}`;
 const appId = process.env.APP || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93';
-const sessionTimestamp = new Date().toISOString();
 
 const services = [];
 const specs = ['./tests/specs/**/*.js'];
@@ -107,7 +109,7 @@ const config = {
       'bstack:options': {
         projectName: BS_PROJECT_NAME,
         buildName: BS_BUILD_NAME,
-        sessionName: `run-${process.env.GITHUB_RUN_ID || 'local'}-${sessionTimestamp}`,
+        sessionName: BS_SESSION_NAME,
         deviceName: process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
         platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
         debug: true,

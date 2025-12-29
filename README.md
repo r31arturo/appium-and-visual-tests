@@ -20,6 +20,8 @@ Las opciones principales viven en `wdio.conf.js` y se pueden sobreescribir con v
 - `PLATFORM_NAME`: `Android` o `iOS` (por defecto `Android`).
 - `DEVICE_NAME` / `PLATFORM_VERSION`: para usar un dispositivo/OS específico.
 - `BROWSERSTACK_PROJECT_NAME` / `BROWSERSTACK_BUILD_NAME`: nombre del proyecto/build en BrowserStack (por defecto `mobile-functional-visual`).
+- `APPIUM_HOST` / `APPIUM_PORT` / `APPIUM_PATH`: host/puerto/path del servidor Appium local (por defecto `127.0.0.1`, `4723`, `/`).
+- `START_APPIUM`: si es `true`, levanta Appium local con `@wdio/appium-service` antes de ejecutar las pruebas.
 - `TEST_USERNAME` / `TEST_PASSWORD`: credenciales dummy para el flujo de login (por defecto `demo@example.com` / `password`).
 
 Las capturas base se guardan en `visual-baseline/` y las diferencias en `visual-output/`. Si la imagen base no existe se crea automáticamente en la primera ejecución.
@@ -46,6 +48,22 @@ Ejecuta el workflow **Manual CI (BrowserStack)** y define el `APP` (y opcionalme
 Asegúrate de tener el servidor Appium 2 corriendo en `127.0.0.1:4723` y expón el binario de la app:
 ```bash
 export APP="/ruta/a/tu/app.apk" # o .ipa
+npm test
+```
+
+Si quieres que WebdriverIO levante Appium automáticamente:
+```bash
+export APP="/ruta/a/tu/app.apk" # o .ipa
+export START_APPIUM=true
+npm test
+```
+
+Para configurar otro host/puerto/path:
+```bash
+export APP="/ruta/a/tu/app.apk" # o .ipa
+export APPIUM_HOST="127.0.0.1"
+export APPIUM_PORT="4723"
+export APPIUM_PATH="/"
 npm test
 ```
 

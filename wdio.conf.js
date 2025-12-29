@@ -11,6 +11,10 @@ const BS_SESSION_NAME =
   process.env.BROWSERSTACK_SESSION_NAME ||
   `run-${process.env.GITHUB_RUN_ID || process.env.GITHUB_RUN_NUMBER || 'local'}-${new Date().toISOString()}`;
 const appId = process.env.APP || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93';
+const shouldStartAppium = process.env.START_APPIUM === 'true';
+const appiumHost = process.env.APPIUM_HOST || '127.0.0.1';
+const appiumPort = Number(process.env.APPIUM_PORT || 4723);
+const appiumPath = process.env.APPIUM_PATH || '/';
 
 const services = [];
 const specs = ['./tests/specs/**/*.js'];
@@ -72,6 +76,13 @@ if (isBrowserStack) {
       buildIdentifier: null,
     },
   ]);
+} else if (shouldStartAppium) {
+  services.push([
+    'appium',
+    {
+      command: 'appium',
+    },
+  ]);
 }
 
 services.push([
@@ -107,15 +118,6 @@ const config = {
       'appium:autoDismissAlerts': false,
       'appium:autoGrantPermissions': true,
       'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',
-      'bstack:options': {
-        projectName: process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests',
-        buildName: process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests',
-        sessionName: BS_SESSION_NAME,
-        deviceName: process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
-        platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
-        debug: true,
-        networkLogs: true,
-      },
     },
   ],
   waitforTimeout: 20000,
@@ -137,11 +139,33 @@ const config = {
   after: () => closeBrowserStackSession(suiteHasFailures),
 };
 
-console.log('[BrowserStack config]', {
-  projectName: BS_PROJECT_NAME,
-  buildName: BS_BUILD_NAME,
-  buildIdentifier: null,
-  sessionName: BS_SESSION_NAME,
-});
+if (isBrowserStack) {
+  config.capabilities[0]['bstack:options'] = {
+    projectName: process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests',
+    buildName: process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests',
+    sessionName: BS_SESSION_NAME,
+    deviceName: process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
+    platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
+    debug: true,
+    networkLogs: true,
+  };
+} else {
+  if (appId.startsWith('bs://')) {
+    throw new Error('En modo local APP debe ser ruta a .apk/.ipa');
+  }
+
+  config.hostname = appiumHost;
+  config.port = appiumPort;
+  config.path = appiumPath;
+}
+
+if (isBrowserStack) {
+  console.log('[BrowserStack config]', {
+    projectName: BS_PROJECT_NAME,
+    buildName: BS_BUILD_NAME,
+    buildIdentifier: null,
+    sessionName: BS_SESSION_NAME,
+  });
+}
 
 module.exports = { config };

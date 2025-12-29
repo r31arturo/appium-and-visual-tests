@@ -11,6 +11,9 @@ describe('Minimal mobile flow with visual checkpoints', () => {
   });
 
   it('performs the login flow and dismisses the success alert', async () => {
-    await loginAndDismissAlert('are@gmail.com', '12345678');
+    const username = process.env.TEST_USERNAME || 'demo@example.com';
+    const password = process.env.TEST_PASSWORD || 'password';
+
+    await loginAndDismissAlert(username, password);
   });
 });

@@ -27,6 +27,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      BROWSERSTACK_BUILD_NAME: appium-and-visual-tests
+      BROWSERSTACK_PROJECT_NAME: appium-and-visual-tests
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

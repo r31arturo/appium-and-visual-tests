@@ -73,7 +73,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -no-audio -no-snapshot -gpu swiftshader_indirect
           script: |
-            set -u -o pipefail
+            set -u
             npx appium --port 4723 --base-path / --log-level error --relaxed-security &
             APPIUM_PID=$!
 

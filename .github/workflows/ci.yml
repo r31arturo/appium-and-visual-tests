@@ -79,11 +79,5 @@ jobs:
           script: |
             adb devices
             npx appium --address 127.0.0.1 --port 4723 --log-no-colors > appium.log 2>&1 &
-            for i in {1..60}; do
-              if curl -sf http://127.0.0.1:4723/status >/dev/null; then
-                echo "Appium is up"
-                break
-              fi
-              sleep 2
-            done
+            i=0; until curl -sf http://127.0.0.1:4723/status >/dev/null; do i=$((i+1)); if [ "$i" -ge 60 ]; then echo "Appium did not start"; exit 1; fi; sleep 2; done; echo "Appium is up"
             APP="$GITHUB_WORKSPACE/tmp/app.apk" npm run test:ci

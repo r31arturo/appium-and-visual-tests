@@ -69,6 +69,12 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Init evidence/log placeholders
+        shell: bash
+        run: |
+          mkdir -p artifacts/evidence
+          : > appium.log
+
       - name: Run tests on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -81,3 +87,13 @@ jobs:
             npx appium --address 127.0.0.1 --port 4723 --log-no-colors > appium.log 2>&1 &
             i=0; until curl -sf http://127.0.0.1:4723/status >/dev/null; do i=$((i+1)); if [ "$i" -ge 60 ]; then echo "Appium did not start"; exit 1; fi; sleep 2; done; echo "Appium is up"
             APP="$GITHUB_WORKSPACE/tmp/app.apk" npm run test:ci
+
+      - name: Upload artifacts (logs + evidence)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-local-emulator-${{ github.run_id }}
+          path: |
+            appium.log
+            artifacts/evidence/**
+          if-no-files-found: warn

@@ -15,71 +15,42 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  android-emulator:
-    name: Android emulator (local Appium)
+  precheck:
+    name: Validate BrowserStack secrets
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    timeout-minutes: 45
+    outputs:
+      can_run: ${{ steps.check.outputs.can_run }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Enable KVM
+      - name: Ensure secrets are available for BrowserStack
+        id: check
+        shell: bash
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+          if [[ -n "${BS_USER}" && -n "${BS_KEY}" ]]; then
+            echo "can_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-      - name: Install dependencies
-        run: npm ci
+          echo "can_run=false" >> "$GITHUB_OUTPUT"
 
-      - name: Install Appium Android driver (UiAutomator2)
-        run: npx appium driver install uiautomator2
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "BrowserStack secrets missing on non-PR event. Failing."
+            exit 1
+          fi
 
-      - name: Download demo app (APK)
-        run: |
-          curl -fsSL \
-            https://github.com/webdriverio/native-demo-app/releases/download/v1.0.8/android.wdio.native.app.v1.0.8.apk \
-            -o /tmp/wdio-native-demo.apk
-
-      - name: Run WDIO tests on emulator
-        uses: reactivecircus/android-emulator-runner@v2
-        timeout-minutes: 25
+          echo "BrowserStack secrets missing on PR. Skipping tests."
+          exit 0
         env:
-          APP: /tmp/wdio-native-demo.apk
-          PLATFORM_NAME: Android
-          DEVICE_NAME: Android Emulator
-          PLATFORM_VERSION: '14.0'
-          APPIUM_HOST: 127.0.0.1
-          APPIUM_PORT: '4723'
-          APPIUM_PATH: /
-        with:
-          api-level: 34
-          target: google_apis
-          arch: x86_64
-          profile: pixel_6
-          disable-animations: true
-          emulator-options: -no-window -no-audio -no-snapshot -gpu swiftshader_indirect
-          script: >-
-            bash -lc 'set -u; npx appium --port 4723 --base-path / --log-level error --relaxed-security & APPIUM_PID=$!; EXIT=0; READY=0; for i in $(seq 1 30); do if curl -sf http://127.0.0.1:4723/status >/dev/null; then READY=1; break; fi; sleep 2; done; if [ "$READY" -ne 1 ]; then echo "Appium no respondió en /status"; EXIT=1; else npm run test:ci:login || EXIT=$?; fi; kill "$APPIUM_PID" 2>/dev/null || true; wait "$APPIUM_PID" 2>/dev/null || true; exit "$EXIT"'
+          BS_USER: ${{ secrets.BROWSERSTACK_USER }}
+          BS_KEY: ${{ secrets.BROWSERSTACK_KEY }}
 
-      - name: Force cleanup emulator/adb
-        if: always()
-        run: |
-          echo "Force cleanup emulator/adb..."
-          timeout 60s adb -s emulator-5554 emu kill || true
-          pkill -9 -f "emulator.*-port 5554" || true
-          timeout 30s adb kill-server || true
+  tests:
+    name: Install and Test
+    needs: precheck
+    if: ${{ needs.precheck.outputs.can_run == 'true' }}
+    uses: ./.github/workflows/browserstack-reusable.yml
+    with:
+      platform_name: ${{ vars.PLATFORM_NAME || 'Android' }}
+      app_id: ${{ vars.BROWSERSTACK_APP_ID || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93' }}
+    secrets: inherit

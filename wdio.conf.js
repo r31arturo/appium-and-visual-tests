@@ -5,11 +5,6 @@ const browserStackKey = process.env.BROWSERSTACK_KEY || process.env.BROWSERSTACK
 const isBrowserStack = Boolean(browserStackUser && browserStackKey);
 const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
-const BS_PROJECT_NAME = process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests';
-const BS_BUILD_NAME = process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests';
-const BS_SESSION_NAME =
-  process.env.BROWSERSTACK_SESSION_NAME ||
-  `run-${process.env.GITHUB_RUN_ID || process.env.GITHUB_RUN_NUMBER || 'local'}-${new Date().toISOString()}`;
 const appId = (() => {
   if (isBrowserStack) {
     return process.env.APP || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93';
@@ -81,6 +76,12 @@ const closeBrowserStackSession = async (hasFailures) => {
 };
 
 if (isBrowserStack) {
+  const BS_PROJECT_NAME = process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests';
+  const BS_BUILD_NAME = process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests';
+  const BS_SESSION_NAME =
+    process.env.BROWSERSTACK_SESSION_NAME ||
+    `run-${process.env.GITHUB_RUN_ID || process.env.GITHUB_RUN_NUMBER || 'local'}-${new Date().toISOString()}`;
+
   services.push([
     'browserstack',
     {
@@ -114,7 +115,9 @@ if (isBrowserStack) {
   capabilities['bstack:options'] = {
     projectName: process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests',
     buildName: process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests',
-    sessionName: BS_SESSION_NAME,
+    sessionName:
+      process.env.BROWSERSTACK_SESSION_NAME ||
+      `run-${process.env.GITHUB_RUN_ID || process.env.GITHUB_RUN_NUMBER || 'local'}-${new Date().toISOString()}`,
     deviceName: process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
     platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
     debug: true,
@@ -122,12 +125,24 @@ if (isBrowserStack) {
   };
 }
 
+if (!isBrowserStack) {
+  capabilities['appium:deviceName'] =
+    process.env.DEVICE_NAME || (isAndroid ? 'Android Emulator' : 'iPhone Simulator');
+  capabilities['appium:platformVersion'] = process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0');
+}
+
 const config = {
   runner: 'local',
   specs,
   maxInstances: 1,
   logLevel: 'info',
-  ...(isBrowserStack ? { user: browserStackUser, key: browserStackKey } : {}),
+  ...(isBrowserStack
+    ? { user: browserStackUser, key: browserStackKey }
+    : {
+        hostname: process.env.APPIUM_HOST || '127.0.0.1',
+        port: Number(process.env.APPIUM_PORT || 4723),
+        path: process.env.APPIUM_PATH || '/',
+      }),
   framework: 'mocha',
   reporters: ['spec'],
   mochaOpts: {
@@ -155,14 +170,18 @@ const config = {
 };
 
 if (isBrowserStack) {
-  config.after = () => closeBrowserStackSession(suiteHasFailures);
-
   console.log('[BrowserStack config]', {
-    projectName: BS_PROJECT_NAME,
-    buildName: BS_BUILD_NAME,
+    projectName: process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests',
+    buildName: process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests',
     buildIdentifier: null,
-    sessionName: BS_SESSION_NAME,
+    sessionName:
+      process.env.BROWSERSTACK_SESSION_NAME ||
+      `run-${process.env.GITHUB_RUN_ID || process.env.GITHUB_RUN_NUMBER || 'local'}-${new Date().toISOString()}`,
   });
+}
+
+if (isBrowserStack) {
+  config.after = () => closeBrowserStackSession(suiteHasFailures);
 }
 
 module.exports = { config };

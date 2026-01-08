@@ -82,30 +82,31 @@ jobs:
           target: google_apis
           arch: x86_64
           disable-animations: true
-          script: |
-            adb devices
-            npx appium --address 127.0.0.1 --port 4723 --log-no-colors > appium.log 2>&1 &
-            i=0; until curl -sf http://127.0.0.1:4723/status >/dev/null; do i=$((i+1)); if [ "$i" -ge 60 ]; then echo "Appium did not start"; exit 1; fi; sleep 2; done; echo "Appium is up"
-            mkdir -p artifacts/evidence
-
-            echo "Starting screen recording..."
-            adb shell rm -f /sdcard/ci-recording.mp4 || true
-            adb shell screenrecord --time-limit 600 --bit-rate 4000000 /sdcard/ci-recording.mp4 &
-            REC_PID=$!
-
-            set +e
-            APP="$GITHUB_WORKSPACE/tmp/app.apk" npm run test:ci
-            TEST_EXIT=$?
-            set -e
-
-            echo "Stopping screen recording..."
-            kill -INT "$REC_PID" || true
-            wait "$REC_PID" || true
-
-            adb pull /sdcard/ci-recording.mp4 artifacts/evidence/ci-recording.mp4 || true
-            adb shell rm -f /sdcard/ci-recording.mp4 || true
-
-            exit "$TEST_EXIT"
+          script: >-
+            bash -euo pipefail -c $'\
+            adb devices\n\
+            npx appium --address 127.0.0.1 --port 4723 --log-no-colors > appium.log 2>&1 &\n\
+            APPIUM_PID=$!\n\
+            i=0; until curl -sf http://127.0.0.1:4723/status >/dev/null; do i=$((i+1)); if [ \"$i\" -ge 60 ]; then echo \"Appium did not start\"; exit 1; fi; sleep 2; done; echo \"Appium is up\"\n\
+            mkdir -p artifacts/evidence\n\
+            echo \"Starting screen recording...\"\n\
+            adb shell rm -f /sdcard/ci-recording.mp4 || true\n\
+            adb shell screenrecord --time-limit 600 --bit-rate 4000000 /sdcard/ci-recording.mp4 &\n\
+            REC_PID=$!\n\
+            cleanup() {\n\
+              echo \"Stopping screen recording...\" || true\n\
+              if [ -n \"${REC_PID:-}\" ]; then kill -INT \"$REC_PID\" || true; wait \"$REC_PID\" || true; fi\n\
+              adb pull /sdcard/ci-recording.mp4 artifacts/evidence/ci-recording.mp4 || true\n\
+              adb shell rm -f /sdcard/ci-recording.mp4 || true\n\
+              if [ -n \"${APPIUM_PID:-}\" ]; then kill \"$APPIUM_PID\" || true; fi\n\
+            }\n\
+            trap cleanup EXIT\n\
+            set +e\n\
+            APP=\"$GITHUB_WORKSPACE/tmp/app.apk\" npm run test:ci\n\
+            TEST_EXIT=$?\n\
+            set -e\n\
+            exit \"$TEST_EXIT\"\n\
+            '
 
       - name: Upload artifacts (logs + evidence)
         if: ${{ always() }}

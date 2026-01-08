@@ -1,4 +1,5 @@
 const { join } = require('node:path');
+const fs = require('node:fs');
 
 const browserStackUser = process.env.BROWSERSTACK_USER || process.env.BROWSERSTACK_USERNAME;
 const browserStackKey = process.env.BROWSERSTACK_KEY || process.env.BROWSERSTACK_ACCESS_KEY;
@@ -25,6 +26,55 @@ const appId = (() => {
 
 const services = [];
 const specs = ['./tests/specs/**/*.js'];
+
+const EVIDENCE_DIR = process.env.EVIDENCE_DIR || join(process.cwd(), 'artifacts', 'evidence');
+const EVIDENCE_VIDEO_ENABLED = /^(1|true)$/i.test(process.env.EVIDENCE_VIDEO || '');
+const EVIDENCE_VIDEO_TIME_LIMIT = String(Number(process.env.EVIDENCE_VIDEO_TIME_LIMIT || 180));
+
+const ensureDir = (dir) => {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+  }
+};
+
+const safeFilename = (value) =>
+  String(value)
+    .replace(/[^a-z0-9-_]+/gi, '-')
+    .replace(/-+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .slice(0, 180);
+
+const nowForFilename = () => new Date().toISOString().replace(/[:.]/g, '-');
+
+let videoRecordingActive = false;
+
+const startLocalVideoRecording = async () => {
+  if (!EVIDENCE_VIDEO_ENABLED || isBrowserStack || videoRecordingActive) return;
+
+  try {
+    await driver.startRecordingScreen({ timeLimit: EVIDENCE_VIDEO_TIME_LIMIT });
+    videoRecordingActive = true;
+  } catch (error) {
+    videoRecordingActive = false;
+    console.warn('[Evidence] startRecordingScreen failed:', error.message);
+  }
+};
+
+const stopLocalVideoRecording = async () => {
+  if (!EVIDENCE_VIDEO_ENABLED || isBrowserStack || !videoRecordingActive) return null;
+
+  try {
+    const base64Video = await driver.stopRecordingScreen();
+    videoRecordingActive = false;
+    return base64Video;
+  } catch (error) {
+    videoRecordingActive = false;
+    console.warn('[Evidence] stopRecordingScreen failed:', error.message);
+    return null;
+  }
+};
 
 let suiteHasFailures = false;
 
@@ -154,16 +204,48 @@ const config = {
   waitforTimeout: 20000,
   connectionRetryCount: 2,
 
-  beforeTest: async () => {
+  beforeTest: async function () {
     await driver.setTimeout({ implicit: 10000 });
+    await startLocalVideoRecording();
   },
 
   afterTest: async function (test, context, { error }) {
     suiteHasFailures = suiteHasFailures || Boolean(error);
 
+    const testId = safeFilename(`${test.parent}--${test.title}`);
+    const stamp = nowForFilename();
+    const caps = driver?.capabilities || {};
+    const deviceName = safeFilename(
+      caps.deviceName || caps['appium:deviceName'] || process.env.DEVICE_NAME || (isAndroid ? 'Android Emulator' : 'iPhone Simulator'),
+    );
+    const platformVersion = safeFilename(
+      caps.platformVersion || caps['appium:platformVersion'] || process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
+    );
+    const evidenceBase = safeFilename(`${platformName}-${platformVersion}-${deviceName}`);
+
+    const baseName = `${stamp}-${evidenceBase}-${testId}`;
+
+    // Stop recording for every test if enabled. Only keep the file when the test failed.
+    const base64Video = await stopLocalVideoRecording();
+    if (base64Video && error) {
+      const videosDir = join(EVIDENCE_DIR, 'videos');
+      ensureDir(videosDir);
+      fs.writeFileSync(join(videosDir, `${baseName}.mp4`), Buffer.from(base64Video, 'base64'));
+    }
+
     if (error) {
-      const name = `${test.parent} -- ${test.title}`.replace(/\s+/g, '-').toLowerCase();
-      await browser.saveScreenshot(join('visual-output', `${name}.png`));
+      const screenshotsDir = join(EVIDENCE_DIR, 'screenshots');
+      ensureDir(screenshotsDir);
+      await browser.saveScreenshot(join(screenshotsDir, `${baseName}.png`));
+
+      try {
+        const pageSourceDir = join(EVIDENCE_DIR, 'page-source');
+        ensureDir(pageSourceDir);
+        const pageSource = await driver.getPageSource();
+        fs.writeFileSync(join(pageSourceDir, `${baseName}.xml`), pageSource, 'utf8');
+      } catch (pageSourceError) {
+        console.warn('[Evidence] getPageSource failed:', pageSourceError.message);
+      }
     }
   },
 

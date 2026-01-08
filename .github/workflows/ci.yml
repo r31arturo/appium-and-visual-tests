@@ -13,6 +13,7 @@ jobs:
   android_emulator:
     name: Android emulator tests
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,13 +28,7 @@ jobs:
           distribution: temurin
           java-version: "17"
       - name: Install dependencies
-        shell: bash
-        run: |
-          if [[ -f package-lock.json ]]; then
-            npm ci
-          else
-            npm install
-          fi
+        run: npm ci
       - name: Download native demo app
         shell: bash
         run: |
@@ -72,27 +67,10 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-snapshot
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot-save
           script: |
-            export PLATFORM_NAME=Android
-            export PLATFORM_VERSION=14.0
             export APP="$GITHUB_WORKSPACE/apps/native-demo-app.apk"
-            nohup npx appium --base-path / --log-level info --relaxed-security > appium.log 2>&1 &
-            for attempt in {1..30}; do
-              if curl --silent --fail http://127.0.0.1:4723/status > /dev/null; then
-                echo "Appium is ready."
-                break
-              fi
-              if [[ "$attempt" -eq 30 ]]; then
-                echo "Appium failed to start."
-                exit 1
-              fi
-              sleep 2
-            done
-            npm run test:ci
-      - name: Upload Appium log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: appium-log
-          path: appium.log
+            adb devices
+            adb wait-for-device
+            adb shell getprop sys.boot_completed
+            npx wdio run ./wdio.conf.js

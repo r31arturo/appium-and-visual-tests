@@ -64,6 +64,8 @@ jobs:
         run: npx appium driver install uiautomator2
       - name: Run emulator tests
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          APP: ${{ github.workspace }}/apps/native-demo-app.apk
         with:
           api-level: 34
           target: google_apis
@@ -72,7 +74,6 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot-save
           script: |
-            export APP="$GITHUB_WORKSPACE/apps/native-demo-app.apk"
             adb devices
             adb wait-for-device
             adb shell getprop sys.boot_completed

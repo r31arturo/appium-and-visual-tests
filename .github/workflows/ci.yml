@@ -29,6 +29,15 @@ jobs:
           java-version: "17"
       - name: Install dependencies
         run: npm ci
+      - name: Tool versions (diagnostic)
+        run: |
+          node -v
+          npm -v
+          npx --no-install wdio --version
+          npx --no-install appium --version
+          npx --no-install appium driver list --installed || true
+          java -version
+          adb version
       - name: Download native demo app
         shell: bash
         run: |

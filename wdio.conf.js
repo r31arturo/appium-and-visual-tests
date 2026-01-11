@@ -1,3 +1,4 @@
+const fs = require('node:fs');
 const { join } = require('node:path');
 
 const browserStackUser = process.env.BROWSERSTACK_USERNAME || process.env.BROWSERSTACK_USER;
@@ -161,12 +162,13 @@ const config = {
     await driver.setTimeout({ implicit: 10000 });
   },
 
-  afterTest: async function (test, context, { error }) {
+  afterTest: async function (test, context, { error, passed }) {
     suiteHasFailures = suiteHasFailures || Boolean(error);
 
-    if (error) {
-      const name = `${test.parent} -- ${test.title}`.replace(/\s+/g, '-').toLowerCase();
-      await browser.saveScreenshot(join('visual-output', `${name}.png`));
+    if (!passed) {
+      fs.mkdirSync(join(process.cwd(), 'visual-output', 'errorShots'), { recursive: true });
+      const fileName = `${Date.now()}-${test.title.replace(/[^a-z0-9-_]+/gi, '_')}.png`;
+      await browser.saveScreenshot(join('visual-output', 'errorShots', fileName));
     }
   },
 

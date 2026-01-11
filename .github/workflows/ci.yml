@@ -37,7 +37,7 @@ jobs:
           npx --no-install appium --version
           npx --no-install appium driver list --installed || true
           java -version
-          adb version
+          command -v adb && adb version || echo "adb not found (yet)"
       - name: Download native demo app
         shell: bash
         run: |

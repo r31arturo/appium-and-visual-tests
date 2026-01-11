@@ -1,12 +1,13 @@
+const fs = require('node:fs');
 const { join } = require('node:path');
 
-const browserStackUser = process.env.BROWSERSTACK_USER || process.env.BROWSERSTACK_USERNAME;
-const browserStackKey = process.env.BROWSERSTACK_KEY || process.env.BROWSERSTACK_ACCESS_KEY;
-const isBrowserStack = Boolean(browserStackUser && browserStackKey);
+const browserStackUser = process.env.BROWSERSTACK_USERNAME || process.env.BROWSERSTACK_USER;
+const browserStackKey = process.env.BROWSERSTACK_ACCESS_KEY || process.env.BROWSERSTACK_KEY;
+const runOnBrowserStack = Boolean(browserStackUser && browserStackKey);
 const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
 const appId = (() => {
-  if (isBrowserStack) {
+  if (runOnBrowserStack) {
     return process.env.APP || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93';
   }
 
@@ -38,7 +39,7 @@ const withTimeout = async (promise, ms, label) => {
 };
 
 const updateBrowserStackStatus = async (status, reason) => {
-  if (!isBrowserStack) {
+  if (!runOnBrowserStack) {
     return;
   }
 
@@ -56,7 +57,7 @@ const updateBrowserStackStatus = async (status, reason) => {
 };
 
 const closeBrowserStackSession = async (hasFailures) => {
-  if (!isBrowserStack || !browser?.sessionId) {
+  if (!runOnBrowserStack || !browser?.sessionId) {
     return;
   }
 
@@ -75,18 +76,19 @@ const closeBrowserStackSession = async (hasFailures) => {
   }
 };
 
-if (isBrowserStack) {
-  const BS_PROJECT_NAME = process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests';
-  const BS_BUILD_NAME = process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests';
-  const BS_SESSION_NAME =
-    process.env.BROWSERSTACK_SESSION_NAME ||
-    `run-${process.env.GITHUB_RUN_ID || process.env.GITHUB_RUN_NUMBER || 'local'}-${new Date().toISOString()}`;
-
+if (runOnBrowserStack) {
   services.push([
     'browserstack',
     {
       testObservability: false,
       buildIdentifier: null,
+    },
+  ]);
+} else {
+  services.push([
+    'appium',
+    {
+      args: { basePath: '/wd/hub' },
     },
   ]);
 }
@@ -102,7 +104,7 @@ services.push([
   },
 ]);
 
-const capabilities = {
+const baseCaps = {
   platformName: isAndroid ? 'Android' : 'iOS',
   'appium:app': appId,
   'appium:autoAcceptAlerts': false,
@@ -111,8 +113,16 @@ const capabilities = {
   'appium:automationName': isAndroid ? 'UiAutomator2' : 'XCUITest',
 };
 
-if (isBrowserStack) {
-  capabilities['bstack:options'] = {
+const localCaps = {
+  ...baseCaps,
+  'appium:deviceName': process.env.DEVICE_NAME || (isAndroid ? 'Android Emulator' : 'iPhone Simulator'),
+  'appium:platformVersion': process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
+  'appium:udid': process.env.UDID || (isAndroid ? 'emulator-5554' : 'auto'),
+};
+
+const bsCaps = {
+  ...baseCaps,
+  'bstack:options': {
     projectName: process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests',
     buildName: process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests',
     sessionName:
@@ -122,26 +132,20 @@ if (isBrowserStack) {
     platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
     debug: true,
     networkLogs: true,
-  };
-}
-
-if (!isBrowserStack) {
-  capabilities['appium:deviceName'] =
-    process.env.DEVICE_NAME || (isAndroid ? 'Android Emulator' : 'iPhone Simulator');
-  capabilities['appium:platformVersion'] = process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0');
-}
+  },
+};
 
 const config = {
   runner: 'local',
   specs,
   maxInstances: 1,
   logLevel: 'info',
-  ...(isBrowserStack
-    ? { user: browserStackUser, key: browserStackKey }
+  ...(runOnBrowserStack
+    ? { user: browserStackUser, key: browserStackKey, hostname: 'hub.browserstack.com', port: 443, path: '/wd/hub' }
     : {
         hostname: process.env.APPIUM_HOST || '127.0.0.1',
         port: Number(process.env.APPIUM_PORT || 4723),
-        path: process.env.APPIUM_PATH || '/',
+        path: process.env.APPIUM_PATH || '/wd/hub',
       }),
   framework: 'mocha',
   reporters: ['spec'],
@@ -150,7 +154,7 @@ const config = {
   },
   services,
   baseUrl: 'http://localhost',
-  capabilities: [capabilities],
+  capabilities: [runOnBrowserStack ? bsCaps : localCaps],
   waitforTimeout: 20000,
   connectionRetryCount: 2,
 
@@ -158,18 +162,19 @@ const config = {
     await driver.setTimeout({ implicit: 10000 });
   },
 
-  afterTest: async function (test, context, { error }) {
+  afterTest: async function (test, context, { error, passed }) {
     suiteHasFailures = suiteHasFailures || Boolean(error);
 
-    if (error) {
-      const name = `${test.parent} -- ${test.title}`.replace(/\s+/g, '-').toLowerCase();
-      await browser.saveScreenshot(join('visual-output', `${name}.png`));
+    if (!passed) {
+      fs.mkdirSync(join(process.cwd(), 'visual-output', 'errorShots'), { recursive: true });
+      const fileName = `${Date.now()}-${test.title.replace(/[^a-z0-9-_]+/gi, '_')}.png`;
+      await browser.saveScreenshot(join('visual-output', 'errorShots', fileName));
     }
   },
 
 };
 
-if (isBrowserStack) {
+if (runOnBrowserStack) {
   console.log('[BrowserStack config]', {
     projectName: process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests',
     buildName: process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests',
@@ -180,7 +185,7 @@ if (isBrowserStack) {
   });
 }
 
-if (isBrowserStack) {
+if (runOnBrowserStack) {
   config.after = () => closeBrowserStackSession(suiteHasFailures);
 }
 

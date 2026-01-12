@@ -15,14 +15,18 @@ class LandingScreen {
 
     await driver.terminateApp(DEFAULT_APP_ID);
     await driver.activateApp(DEFAULT_APP_ID);
+    await driver.pause(1000);
   }
 
   async ensureOnLanding() {
-    if (!(await this.loginButton.isDisplayed())) {
+    try {
+      await this.loginButton.waitForDisplayed({ timeout: 15000 });
+      return;
+    } catch (error) {
       await this.relaunchApp();
     }
 
-    await this.loginButton.waitForDisplayed({ timeout: 15000 });
+    await this.loginButton.waitForDisplayed({ timeout: 20000 });
   }
 
   async openLoginForm() {

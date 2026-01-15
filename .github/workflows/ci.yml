@@ -14,6 +14,8 @@ jobs:
     name: Android emulator tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      NATIVE_DEMO_APP_TAG: v1.0.8
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,16 +49,20 @@ jobs:
           import urllib.request
           import os
 
-          api_url = "https://api.github.com/repos/webdriverio/native-demo-app/releases/latest"
+          tag = os.environ.get("NATIVE_DEMO_APP_TAG", "v1.0.8")
+          print(f"Native Demo App tag: {tag}")
+          api_url = f"https://api.github.com/repos/webdriverio/native-demo-app/releases/tags/{tag}"
           with urllib.request.urlopen(api_url) as response:
             payload = json.load(response)
 
           assets = payload.get("assets", [])
           apk_url = None
+          apk_name = None
           for asset in assets:
             name = asset.get("name", "").lower()
             if name.endswith(".apk"):
               apk_url = asset.get("browser_download_url")
+              apk_name = asset.get("name")
               break
 
           if not apk_url:
@@ -64,6 +70,7 @@ jobs:
 
           output_path = os.path.join("apps", "native-demo-app.apk")
           urllib.request.urlretrieve(apk_url, output_path)
+          print(f"Native Demo App asset: {apk_name}")
           print(f"Downloaded APK to {output_path}")
           PY
       - name: Install Appium driver

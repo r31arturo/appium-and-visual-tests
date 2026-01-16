@@ -3,3 +3,4 @@ visual-output
 visual-baseline
 npm-debug.log
 .DS_Store
+apps/

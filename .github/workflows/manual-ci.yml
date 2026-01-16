@@ -89,15 +89,26 @@ jobs:
             else
               npx wdio run ./wdio.conf.js
             fi
+      - name: Collect evidence paths
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "paths<<EOF"
+            echo "artifacts/**"
+            echo "mochawesome-report/**"
+            echo "mochawesome-report.html"
+            if compgen -G "visual-output/**" > /dev/null || compgen -G "visual-baseline/**" > /dev/null; then
+              echo "visual-output/**"
+              echo "visual-baseline/**"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+        id: evidence_paths
       - name: Upload test evidence
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-evidence-${{ github.workflow }}-${{ github.run_id }}
           if-no-files-found: warn
-          path: |
-            artifacts/**
-            mochawesome-report/**
-            mochawesome-report.html
-            visual-output/**
-            visual-baseline/**
+          path: ${{ steps.evidence_paths.outputs.paths }}

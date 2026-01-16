@@ -103,3 +103,15 @@ jobs:
             adb shell wm dismiss-keyguard || true
             adb shell input keyevent 82 || true
             npx wdio run ./wdio.conf.js
+      - name: Upload test evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-evidence-${{ github.workflow }}-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            artifacts/**
+            mochawesome-report/**
+            mochawesome-report.html
+            visual-output/**
+            visual-baseline/**

@@ -26,8 +26,12 @@
     "@wdio/mocha-framework": "^9.21.0",
     "@wdio/spec-reporter": "^9.20.0",
     "@wdio/visual-service": "^9.0.0",
-    "webdriverio": "^9.21.0",
     "appium": "^3.1.1",
-    "mocha": "^11.7.5"
+    "mocha": "^11.7.5",
+    "mochawesome-report-generator": "^6.3.2",
+    "wdio-mochawesome-reporter": "^7.0.0",
+    "webdriverio": "^9.21.0",
+    "@wdio/allure-reporter": "^9.20.0",
+    "@wdio/junit-reporter": "^9.20.0"
   }
 }

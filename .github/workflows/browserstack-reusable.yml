@@ -27,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      checks: write
     env:
       BROWSERSTACK_PROJECT_NAME: appium-and-visual-tests
       BROWSERSTACK_BUILD_NAME: appium-and-visual-tests
@@ -80,3 +81,11 @@ jobs:
           name: test-evidence-${{ github.workflow }}-${{ github.run_id }}
           if-no-files-found: warn
           path: ${{ steps.evidence_paths.outputs.paths }}
+      - name: Publish JUnit report
+        if: always()
+        uses: dorny/test-reporter@v2
+        with:
+          name: WDIO JUnit (${{ github.workflow }})
+          path: report/junit/**/*.xml
+          reporter: java-junit
+          fail-on-error: "false"

@@ -82,10 +82,11 @@ jobs:
           if-no-files-found: warn
           path: ${{ steps.evidence_paths.outputs.paths }}
       - name: Publish JUnit report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: dorny/test-reporter@v2
         with:
           name: WDIO JUnit (${{ github.workflow }})
           path: report/junit/**/*.xml
           reporter: java-junit
+          fail-on-empty: "false"
           fail-on-error: "false"

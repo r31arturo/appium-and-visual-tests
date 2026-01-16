@@ -16,6 +16,9 @@ jobs:
   android_emulator:
     name: Android emulator tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
     timeout-minutes: 45
     env:
       NATIVE_DEMO_APP_TAG: v1.0.8
@@ -95,13 +98,9 @@ jobs:
         run: |
           {
             echo "paths<<EOF"
-            echo "artifacts/**"
-            echo "mochawesome-report/**"
-            echo "mochawesome-report.html"
-            if compgen -G "visual-output/**" > /dev/null || compgen -G "visual-baseline/**" > /dev/null; then
-              echo "visual-output/**"
-              echo "visual-baseline/**"
-            fi
+            echo "report/mochawesome.html"
+            echo "report/mochawesome-screenshots/**"
+            echo "report/junit/**/*.xml"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
         id: evidence_paths
@@ -112,3 +111,12 @@ jobs:
           name: test-evidence-${{ github.workflow }}-${{ github.run_id }}
           if-no-files-found: warn
           path: ${{ steps.evidence_paths.outputs.paths }}
+      - name: Publish JUnit report
+        if: ${{ !cancelled() }}
+        uses: dorny/test-reporter@v2
+        with:
+          name: WDIO JUnit (${{ github.workflow }})
+          path: report/junit/**/*.xml
+          reporter: java-junit
+          fail-on-empty: "false"
+          fail-on-error: "false"

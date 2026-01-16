@@ -4,6 +4,20 @@ const { execSync } = require('node:child_process');
 const mergeResults = require('wdio-mochawesome-reporter/mergeResults');
 const MochawesomeReporter = require('wdio-mochawesome-reporter').default;
 
+const reportDir = join(process.cwd(), 'report');
+const reportDirs = {
+  visualBaseline: join(reportDir, 'visual-baseline'),
+  visualOutput: join(reportDir, 'visual-output'),
+  junit: join(reportDir, 'junit'),
+  mochawesomeJson: join(reportDir, 'mochawesome-json'),
+  mochawesomeScreenshots: join(reportDir, 'mochawesome-screenshots'),
+};
+
+fs.mkdirSync(reportDir, { recursive: true });
+Object.values(reportDirs).forEach((dir) => fs.mkdirSync(dir, { recursive: true }));
+
+const isCI = process.env.GITHUB_ACTIONS === 'true' || process.env.CI === 'true';
+
 const browserStackUser = process.env.BROWSERSTACK_USERNAME || process.env.BROWSERSTACK_USER;
 const browserStackKey = process.env.BROWSERSTACK_ACCESS_KEY || process.env.BROWSERSTACK_KEY;
 const runOnBrowserStack = Boolean(browserStackUser && browserStackKey);
@@ -115,8 +129,8 @@ if (runOnBrowserStack) {
 services.push([
   'visual',
   {
-    baselineFolder: join(process.cwd(), 'visual-baseline'),
-    screenshotPath: join(process.cwd(), 'visual-output'),
+    baselineFolder: reportDirs.visualBaseline,
+    screenshotPath: reportDirs.visualOutput,
     formatImageName: '{tag}-{platformName}-{deviceName}-{width}x{height}',
     savePerInstance: true,
     autoSaveBaseline: true,
@@ -169,15 +183,24 @@ const config = {
   framework: 'mocha',
   reporters: [
     'spec',
-    'junit',
-    'allure',
     [
       'mochawesome',
       {
-        outputDir: './artifacts/mochawesome-json',
+        outputDir: reportDirs.mochawesomeJson,
         outputFileFormat: (opts) => `results-${opts.cid}.json`,
       },
     ],
+    ...(isCI
+      ? [
+          [
+            'junit',
+            {
+              outputDir: reportDirs.junit,
+              outputFileFormat: (opts) => `wdio-${opts.cid}.xml`,
+            },
+          ],
+        ]
+      : []),
   ],
   mochawesomeOpts: {
     includeScreenshots: true,
@@ -201,9 +224,8 @@ const config = {
 
     if (!passed) {
       const fileName = `${Date.now()}-${test.title.replace(/[^a-z0-9-_]+/gi, '_')}.png`;
-      const artifactsDir = join(process.cwd(), 'artifacts');
-      const visualErrorDir = join(process.cwd(), 'visual-output', 'errorShots');
-      const mochawesomeShotsDir = join(artifactsDir, 'mochawesome-screenshots');
+      const visualErrorDir = join(reportDirs.visualOutput, 'errorShots');
+      const mochawesomeShotsDir = reportDirs.mochawesomeScreenshots;
       const mochawesomeShotPath = join(mochawesomeShotsDir, fileName);
       const visualShotPath = join(visualErrorDir, fileName);
       const relativeShotPath = join('mochawesome-screenshots', fileName).split(sep).join('/');
@@ -217,8 +239,7 @@ const config = {
     }
   },
   onComplete: async () => {
-    const artifactsDir = join(process.cwd(), 'artifacts');
-    const resultsDir = join(process.cwd(), 'artifacts', 'mochawesome-json');
+    const resultsDir = reportDirs.mochawesomeJson;
     const mergedFile = join(resultsDir, 'wdio-ma-merged.json');
     const resultFiles = fs.existsSync(resultsDir)
       ? fs.readdirSync(resultsDir).filter((file) => file.match(/results-.*\.json$/))
@@ -229,7 +250,7 @@ const config = {
       return;
     }
 
-    fs.mkdirSync(artifactsDir, { recursive: true });
+    fs.mkdirSync(reportDir, { recursive: true });
     await mergeResults(resultsDir, 'results-.*\\.json$');
 
     if (!fs.existsSync(mergedFile) && resultFiles.length === 1) {
@@ -240,7 +261,7 @@ const config = {
       console.warn('[Mochawesome] Merged JSON not found, skipping report generation.');
       return;
     }
-    execSync(`npx marge --inline ${mergedFile} -o artifacts -f mochawesome`, { stdio: 'inherit' });
+    execSync(`npx marge --inline ${mergedFile} -o ${reportDir} -f mochawesome`, { stdio: 'inherit' });
   },
 
 };

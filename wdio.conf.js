@@ -1,20 +1,39 @@
 const fs = require('node:fs');
-const { join } = require('node:path');
+const { join, sep } = require('node:path');
+const { execSync } = require('node:child_process');
+const mergeResults = require('wdio-mochawesome-reporter/mergeResults');
+const MochawesomeReporter = require('wdio-mochawesome-reporter').default;
 
 const browserStackUser = process.env.BROWSERSTACK_USERNAME || process.env.BROWSERSTACK_USER;
 const browserStackKey = process.env.BROWSERSTACK_ACCESS_KEY || process.env.BROWSERSTACK_KEY;
 const runOnBrowserStack = Boolean(browserStackUser && browserStackKey);
 const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
+const findLocalApp = () => {
+  const appsDir = join(process.cwd(), 'apps');
+
+  if (!fs.existsSync(appsDir)) {
+    return null;
+  }
+
+  const candidates = fs
+    .readdirSync(appsDir)
+    .filter((file) => file.endsWith('.apk') || file.endsWith('.ipa'))
+    .map((file) => join(appsDir, file));
+
+  return candidates[0] || null;
+};
 const appId = (() => {
   if (runOnBrowserStack) {
     return process.env.APP || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93';
   }
 
-  const localApp = process.env.APP;
+  const localApp = process.env.APP || findLocalApp();
 
   if (!localApp) {
-    throw new Error('APP is required for local runs (path to .apk/.ipa)');
+    throw new Error(
+      'APP is required for local runs (path to .apk/.ipa). Example: APP=./apps/tu.apk npm run test:ci:login',
+    );
   }
 
   if (localApp.startsWith('bs://')) {
@@ -148,7 +167,22 @@ const config = {
         path: process.env.APPIUM_PATH || '/wd/hub',
       }),
   framework: 'mocha',
-  reporters: ['spec'],
+  reporters: [
+    'spec',
+    'junit',
+    'allure',
+    [
+      'mochawesome',
+      {
+        outputDir: './artifacts/mochawesome-json',
+        outputFileFormat: (opts) => `results-${opts.cid}.json`,
+      },
+    ],
+  ],
+  mochawesomeOpts: {
+    includeScreenshots: true,
+    screenshotUseRelativePath: true,
+  },
   mochaOpts: {
     timeout: 120000,
   },
@@ -166,10 +200,47 @@ const config = {
     suiteHasFailures = suiteHasFailures || Boolean(error);
 
     if (!passed) {
-      fs.mkdirSync(join(process.cwd(), 'visual-output', 'errorShots'), { recursive: true });
       const fileName = `${Date.now()}-${test.title.replace(/[^a-z0-9-_]+/gi, '_')}.png`;
-      await browser.saveScreenshot(join('visual-output', 'errorShots', fileName));
+      const artifactsDir = join(process.cwd(), 'artifacts');
+      const visualErrorDir = join(process.cwd(), 'visual-output', 'errorShots');
+      const mochawesomeShotsDir = join(artifactsDir, 'mochawesome-screenshots');
+      const mochawesomeShotPath = join(mochawesomeShotsDir, fileName);
+      const visualShotPath = join(visualErrorDir, fileName);
+      const relativeShotPath = join('mochawesome-screenshots', fileName).split(sep).join('/');
+
+      fs.mkdirSync(mochawesomeShotsDir, { recursive: true });
+      fs.mkdirSync(visualErrorDir, { recursive: true });
+
+      await browser.saveScreenshot(mochawesomeShotPath);
+      fs.copyFileSync(mochawesomeShotPath, visualShotPath);
+      MochawesomeReporter.addContext(relativeShotPath);
     }
+  },
+  onComplete: async () => {
+    const artifactsDir = join(process.cwd(), 'artifacts');
+    const resultsDir = join(process.cwd(), 'artifacts', 'mochawesome-json');
+    const mergedFile = join(resultsDir, 'wdio-ma-merged.json');
+    const resultFiles = fs.existsSync(resultsDir)
+      ? fs.readdirSync(resultsDir).filter((file) => file.match(/results-.*\.json$/))
+      : [];
+
+    if (resultFiles.length === 0) {
+      console.warn('[Mochawesome] No JSON results found, skipping report generation.');
+      return;
+    }
+
+    fs.mkdirSync(artifactsDir, { recursive: true });
+    await mergeResults(resultsDir, 'results-.*\\.json$');
+
+    if (!fs.existsSync(mergedFile) && resultFiles.length === 1) {
+      fs.copyFileSync(join(resultsDir, resultFiles[0]), mergedFile);
+    }
+
+    if (!fs.existsSync(mergedFile)) {
+      console.warn('[Mochawesome] Merged JSON not found, skipping report generation.');
+      return;
+    }
+    execSync(`npx marge --inline ${mergedFile} -o artifacts -f mochawesome`, { stdio: 'inherit' });
   },
 
 };

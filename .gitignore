@@ -1,6 +1,7 @@
 node_modules
 visual-output
 visual-baseline
+report/
 npm-debug.log
 .DS_Store
 apps/

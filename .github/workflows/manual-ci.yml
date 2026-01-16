@@ -95,13 +95,7 @@ jobs:
         run: |
           {
             echo "paths<<EOF"
-            echo "artifacts/**"
-            echo "mochawesome-report/**"
-            echo "mochawesome-report.html"
-            if compgen -G "visual-output/**" > /dev/null || compgen -G "visual-baseline/**" > /dev/null; then
-              echo "visual-output/**"
-              echo "visual-baseline/**"
-            fi
+            echo "report/**"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
         id: evidence_paths

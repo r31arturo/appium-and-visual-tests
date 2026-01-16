@@ -9,13 +9,14 @@ const reportDirs = {
   visualBaseline: join(reportDir, 'visual-baseline'),
   visualOutput: join(reportDir, 'visual-output'),
   junit: join(reportDir, 'junit'),
-  allure: join(reportDir, 'allure-results'),
   mochawesomeJson: join(reportDir, 'mochawesome-json'),
   mochawesomeScreenshots: join(reportDir, 'mochawesome-screenshots'),
 };
 
 fs.mkdirSync(reportDir, { recursive: true });
 Object.values(reportDirs).forEach((dir) => fs.mkdirSync(dir, { recursive: true }));
+
+const isCI = process.env.GITHUB_ACTIONS === 'true' || process.env.CI === 'true';
 
 const browserStackUser = process.env.BROWSERSTACK_USERNAME || process.env.BROWSERSTACK_USER;
 const browserStackKey = process.env.BROWSERSTACK_ACCESS_KEY || process.env.BROWSERSTACK_KEY;
@@ -183,24 +184,23 @@ const config = {
   reporters: [
     'spec',
     [
-      'junit',
-      {
-        outputDir: reportDirs.junit,
-      },
-    ],
-    [
-      'allure',
-      {
-        outputDir: reportDirs.allure,
-      },
-    ],
-    [
       'mochawesome',
       {
         outputDir: reportDirs.mochawesomeJson,
         outputFileFormat: (opts) => `results-${opts.cid}.json`,
       },
     ],
+    ...(isCI
+      ? [
+          [
+            'junit',
+            {
+              outputDir: reportDirs.junit,
+              outputFileFormat: (opts) => `wdio-${opts.cid}.xml`,
+            },
+          ],
+        ]
+      : []),
   ],
   mochawesomeOpts: {
     includeScreenshots: true,

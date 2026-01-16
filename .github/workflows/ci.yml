@@ -109,7 +109,9 @@ jobs:
         run: |
           {
             echo "paths<<EOF"
-            echo "report/**"
+            echo "report/mochawesome.html"
+            echo "report/mochawesome-screenshots/**"
+            echo "report/junit/**/*.xml"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
         id: evidence_paths

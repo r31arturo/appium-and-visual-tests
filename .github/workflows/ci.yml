@@ -1,56 +1,105 @@
-name: CI
+name: "CI (Emulator)"
 
 on:
   pull_request:
     branches:
       - main
-  push:
-    branches:
-      - main
-  merge_group:
-  workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-emulator-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  precheck:
-    name: Validate BrowserStack secrets
+  android_emulator:
+    name: Android emulator tests
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      can_run: ${{ steps.check.outputs.can_run }}
+    timeout-minutes: 45
+    env:
+      NATIVE_DEMO_APP_TAG: v1.0.8
     steps:
-      - name: Ensure secrets are available for BrowserStack
-        id: check
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install dependencies
+        run: npm ci
+      - name: Tool versions (diagnostic)
+        run: |
+          node -v
+          npm -v
+          npx --no-install wdio --version
+          npx --no-install appium --version
+          npx --no-install appium driver list --installed || true
+          java -version
+          command -v adb && adb version || echo "adb not found (yet)"
+      - name: Download native demo app
         shell: bash
         run: |
-          if [[ -n "${BS_USER}" && -n "${BS_KEY}" ]]; then
-            echo "can_run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          mkdir -p apps
+          python - <<'PY'
+          import json
+          import urllib.request
+          import os
 
-          echo "can_run=false" >> "$GITHUB_OUTPUT"
+          tag = os.environ.get("NATIVE_DEMO_APP_TAG", "v1.0.8")
+          print(f"Native Demo App tag: {tag}")
+          api_url = f"https://api.github.com/repos/webdriverio/native-demo-app/releases/tags/{tag}"
+          with urllib.request.urlopen(api_url) as response:
+            payload = json.load(response)
 
-          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-            echo "BrowserStack secrets missing on non-PR event. Failing."
-            exit 1
-          fi
+          assets = payload.get("assets", [])
+          apk_url = None
+          apk_name = None
+          for asset in assets:
+            name = asset.get("name", "").lower()
+            if name.endswith(".apk"):
+              apk_url = asset.get("browser_download_url")
+              apk_name = asset.get("name")
+              break
 
-          echo "BrowserStack secrets missing on PR. Skipping tests."
-          exit 0
+          if not apk_url:
+            raise SystemExit("No APK asset found in latest release.")
+
+          output_path = os.path.join("apps", "native-demo-app.apk")
+          urllib.request.urlretrieve(apk_url, output_path)
+          print(f"Native Demo App asset: {apk_name}")
+          print(f"Downloaded APK to {output_path}")
+          PY
+      - name: Install Appium driver
+        run: npx appium driver install uiautomator2
+      - name: Enable KVM group perms
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify KVM access
+        run: |
+          ls -l /dev/kvm || true
+      - name: Run emulator tests
+        uses: reactivecircus/android-emulator-runner@v2
         env:
-          BS_USER: ${{ secrets.BROWSERSTACK_USER }}
-          BS_KEY: ${{ secrets.BROWSERSTACK_KEY }}
-
-  tests:
-    name: Install and Test
-    needs: precheck
-    if: ${{ needs.precheck.outputs.can_run == 'true' }}
-    uses: ./.github/workflows/browserstack-reusable.yml
-    with:
-      platform_name: ${{ vars.PLATFORM_NAME || 'Android' }}
-      app_id: ${{ vars.BROWSERSTACK_APP_ID || 'bs://ce24671772a8ec2e579c84116a9ca58bf7ecde93' }}
-    secrets: inherit
+          APP: ${{ github.workspace }}/apps/native-demo-app.apk
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot-save
+          script: |
+            adb kill-server || true
+            adb start-server || true
+            adb devices
+            adb wait-for-device
+            BOOT="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"; while [ "$BOOT" != "1" ]; do echo "sys.boot_completed=$BOOT"; sleep 5; BOOT="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"; done; echo "sys.boot_completed=$BOOT"
+            adb shell wm dismiss-keyguard || true
+            adb shell input keyevent 82 || true
+            npx wdio run ./wdio.conf.js

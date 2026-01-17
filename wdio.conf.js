@@ -2,7 +2,6 @@ const fs = require('node:fs');
 const { join, sep } = require('node:path');
 const { execSync } = require('node:child_process');
 const mergeResults = require('wdio-mochawesome-reporter/mergeResults');
-const MochawesomeReporter = require('wdio-mochawesome-reporter').default;
 
 const reportDir = join(process.cwd(), 'report');
 const reportDirs = {
@@ -17,6 +16,11 @@ fs.mkdirSync(reportDir, { recursive: true });
 Object.values(reportDirs).forEach((dir) => fs.mkdirSync(dir, { recursive: true }));
 
 const isCI = process.env.GITHUB_ACTIONS === 'true' || process.env.CI === 'true';
+const enableVisualComparison = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.VISUAL_COMPARE || '').toLowerCase(),
+);
+const runModeLabel = enableVisualComparison ? 'Visual' : 'Funcional';
+const reportFileName = enableVisualComparison ? 'mochawesome-visual' : 'mochawesome-funcional';
 
 const browserStackUser = process.env.BROWSERSTACK_USERNAME || process.env.BROWSERSTACK_USER;
 const browserStackKey = process.env.BROWSERSTACK_ACCESS_KEY || process.env.BROWSERSTACK_KEY;
@@ -61,6 +65,8 @@ const services = [];
 const specs = ['./tests/specs/**/*.js'];
 
 let suiteHasFailures = false;
+let actionScreenshotHooksInstalled = false;
+let isInTest = false;
 
 const withTimeout = async (promise, ms, label) => {
   let timeoutId;
@@ -69,6 +75,60 @@ const withTimeout = async (promise, ms, label) => {
   });
 
   return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+};
+
+const buildActionLabel = (element, actionName) => {
+  const selector = typeof element?.selector === 'string' ? element.selector : '';
+  return selector ? `Before ${actionName} (${selector})` : `Before ${actionName}`;
+};
+
+const captureActionScreenshot = async (element, actionName) => {
+  if (!isInTest) {
+    return;
+  }
+
+  let exists = false;
+
+  try {
+    exists = await element.isExisting();
+  } catch (error) {
+    return;
+  }
+
+  if (!exists) {
+    return;
+  }
+
+  process.emit('wdio-mochawesome-reporter:addContext', {
+    title: 'Step',
+    value: buildActionLabel(element, actionName),
+  });
+
+  try {
+    await browser.takeScreenshot();
+  } catch (error) {
+    console.warn(`[Screenshot] Failed before ${actionName}: ${error.message}`);
+  }
+};
+
+const installActionScreenshotHooks = () => {
+  if (actionScreenshotHooksInstalled) {
+    return;
+  }
+
+  actionScreenshotHooksInstalled = true;
+  const commandsToCapture = ['click', 'setValue', 'addValue', 'clearValue'];
+
+  commandsToCapture.forEach((commandName) => {
+    browser.overwriteCommand(
+      commandName,
+      async function (origCommand, ...args) {
+        await captureActionScreenshot(this, commandName);
+        return origCommand.apply(this, args);
+      },
+      true,
+    );
+  });
 };
 
 const updateBrowserStackStatus = async (status, reason) => {
@@ -126,16 +186,18 @@ if (runOnBrowserStack) {
   ]);
 }
 
-services.push([
-  'visual',
-  {
-    baselineFolder: reportDirs.visualBaseline,
-    screenshotPath: reportDirs.visualOutput,
-    formatImageName: '{tag}-{platformName}-{deviceName}-{width}x{height}',
-    savePerInstance: true,
-    autoSaveBaseline: true,
-  },
-]);
+if (enableVisualComparison) {
+  services.push([
+    'visual',
+    {
+      baselineFolder: reportDirs.visualBaseline,
+      screenshotPath: reportDirs.visualOutput,
+      formatImageName: '{tag}-{platformName}-{deviceName}-{width}x{height}',
+      savePerInstance: true,
+      autoSaveBaseline: true,
+    },
+  ]);
+}
 
 const baseCaps = {
   platformName: isAndroid ? 'Android' : 'iOS',
@@ -215,7 +277,12 @@ const config = {
   waitforTimeout: 20000,
   connectionRetryCount: 2,
 
+  before: async () => {
+    installActionScreenshotHooks();
+  },
+
   beforeTest: async () => {
+    isInTest = true;
     await driver.setTimeout({ implicit: 10000 });
   },
 
@@ -228,15 +295,14 @@ const config = {
       const mochawesomeShotsDir = reportDirs.mochawesomeScreenshots;
       const mochawesomeShotPath = join(mochawesomeShotsDir, fileName);
       const visualShotPath = join(visualErrorDir, fileName);
-      const relativeShotPath = join('mochawesome-screenshots', fileName).split(sep).join('/');
-
       fs.mkdirSync(mochawesomeShotsDir, { recursive: true });
       fs.mkdirSync(visualErrorDir, { recursive: true });
 
       await browser.saveScreenshot(mochawesomeShotPath);
       fs.copyFileSync(mochawesomeShotPath, visualShotPath);
-      MochawesomeReporter.addContext(relativeShotPath);
     }
+
+    isInTest = false;
   },
   onComplete: async () => {
     const resultsDir = reportDirs.mochawesomeJson;
@@ -261,7 +327,12 @@ const config = {
       console.warn('[Mochawesome] Merged JSON not found, skipping report generation.');
       return;
     }
-    execSync(`npx marge --inline ${mergedFile} -o ${reportDir} -f mochawesome`, { stdio: 'inherit' });
+    const reportTitle = `Mochawesome - ${runModeLabel}`;
+    const reportPageTitle = `Tests (${runModeLabel})`;
+    execSync(
+      `npx marge --inline ${mergedFile} -o ${reportDir} -f ${reportFileName} -t "${reportTitle}" -p "${reportPageTitle}"`,
+      { stdio: 'inherit' },
+    );
   },
 
 };

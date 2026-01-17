@@ -80,7 +80,7 @@ jobs:
         shell: bash
         run: |
           if npx --no-install appium driver list --installed | grep -q "uiautomator2"; then
-            npx appium driver update uiautomator2
+            echo "uiautomator2 already installed"
           else
             npx appium driver install uiautomator2
           fi

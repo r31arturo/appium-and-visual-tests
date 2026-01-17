@@ -71,7 +71,13 @@ jobs:
           print(f"Downloaded APK to {output_path}")
           PY
       - name: Install Appium driver
-        run: npx appium driver install uiautomator2
+        shell: bash
+        run: |
+          if npx --no-install appium driver list --installed | grep -q "uiautomator2"; then
+            npx appium driver update uiautomator2
+          else
+            npx appium driver install uiautomator2
+          fi
       - name: Run emulator tests
         uses: reactivecircus/android-emulator-runner@v2
         env:

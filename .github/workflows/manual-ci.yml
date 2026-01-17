@@ -73,7 +73,7 @@ jobs:
       - name: Install Appium driver
         shell: bash
         run: |
-          if npx --no-install appium driver list --installed | grep -q "uiautomator2"; then
+          if npx --no-install appium driver list --installed 2>&1 | grep -q "uiautomator2"; then
             echo "uiautomator2 already installed"
           else
             npx appium driver install uiautomator2

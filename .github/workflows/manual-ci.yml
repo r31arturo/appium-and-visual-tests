@@ -101,11 +101,7 @@ jobs:
             adb devices
             adb wait-for-device
             adb shell getprop sys.boot_completed
-            if [[ -n "${{ inputs.spec }}" ]]; then
-              npx wdio run ./wdio.conf.js --spec "${{ inputs.spec }}"
-            else
-              npx wdio run ./wdio.conf.js
-            fi
+            if [ -n "${{ inputs.spec }}" ]; then npx wdio run ./wdio.conf.js --spec "${{ inputs.spec }}"; else npx wdio run ./wdio.conf.js; fi
       - name: Collect evidence paths
         if: always()
         shell: bash

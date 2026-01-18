@@ -118,7 +118,7 @@ jobs:
         run: |
           {
             echo "paths<<EOF"
-            echo "report/mochawesome.html"
+            echo "report/mochawesome-*.html"
             echo "report/mochawesome-screenshots/**"
             echo "report/junit/**/*.xml"
             echo "EOF"
@@ -138,5 +138,5 @@ jobs:
           name: WDIO JUnit (${{ github.workflow }})
           path: report/junit/**/*.xml
           reporter: java-junit
-          fail-on-empty: "false"
-          fail-on-error: "false"
+          fail-on-empty: "true"
+          fail-on-error: "true"

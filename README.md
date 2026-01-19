@@ -1,6 +1,6 @@
 # Appium + WebdriverIO minimal mobile and visual tests
 
-Proyecto base súper compacto para ejecutar pruebas funcionales y de regresión visual en Android e iOS usando Appium 2 + WebdriverIO 8 y la Image Comparison Service. Listo para funcionar tanto en BrowserStack como en un servidor Appium local.
+Proyecto base súper compacto para ejecutar pruebas funcionales y de regresión visual en Android e iOS usando Appium 3 + WebdriverIO 9 y la Image Comparison Service. Listo para funcionar tanto en BrowserStack como en un servidor Appium local.
 
 ## Requisitos
 - Node.js 18+
@@ -43,7 +43,7 @@ Ejecuta el workflow **Manual CI (BrowserStack)** y define el `APP` (y opcionalme
 > Nota: si alguna credencial estuvo expuesta públicamente, rótala de inmediato en BrowserStack y actualiza los secrets.
 
 ### Ejecutar contra Appium local
-Asegúrate de tener el servidor Appium 2 corriendo en `127.0.0.1:4723` y expón el binario de la app:
+Asegúrate de tener el servidor Appium 3 corriendo en `127.0.0.1:4723` y expón el binario de la app:
 ```bash
 export APP="/ruta/a/tu/app.apk" # o .ipa
 npm test

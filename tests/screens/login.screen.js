@@ -31,11 +31,15 @@ class LoginScreen {
   }
 
   get alertTitle() {
-    return $(driver.isAndroid ? 'id:android:id/alertTitle' : iosPredicateName('alertTitle'));
+    return $(driver.isAndroid
+      ? 'id:android:id/alertTitle'
+      : '-ios predicate string:type == "XCUIElementTypeAlert"');
   }
 
   get alertOkButton() {
-    return $(driver.isAndroid ? 'id:android:id/button1' : iosPredicateName('OK'));
+    return $(driver.isAndroid
+      ? 'id:android:id/button1'
+      : '-ios class chain:**/XCUIElementTypeAlert/**/XCUIElementTypeButton[`name == "OK"`]');
   }
 
   async waitForForm() {

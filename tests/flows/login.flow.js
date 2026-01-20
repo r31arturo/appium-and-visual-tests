@@ -1,7 +1,12 @@
 const LandingScreen = require('../screens/landing.screen');
 const LoginScreen = require('../screens/login.screen');
 
+const logStep = (message) => {
+  console.log(`[login] ${message}`);
+};
+
 const captureLanding = async (tag = 'landing') => {
+  logStep(`capture landing screen: ${tag}`);
   await LandingScreen.ensureOnLanding();
   if (typeof browser.saveScreen === 'function' && typeof browser.checkScreen === 'function') {
     await browser.saveScreen(tag);
@@ -14,9 +19,13 @@ const captureLanding = async (tag = 'landing') => {
 };
 
 const loginAndDismissAlert = async (username, password) => {
+  logStep('open login form');
   await LandingScreen.openLoginForm();
+  logStep('submit credentials');
   await LoginScreen.login(username, password);
-  await LoginScreen.dismissSuccessAlert()
+  logStep('dismiss success alert');
+  await LoginScreen.dismissSuccessAlert();
+  logStep('alert dismissed');
 };
 
 module.exports = {

@@ -21,6 +21,24 @@ Las opciones principales viven en `wdio.conf.js` y se pueden sobreescribir con v
 - `DEVICE_NAME` / `PLATFORM_VERSION`: para usar un dispositivo/OS específico.
 - `BROWSERSTACK_PROJECT_NAME` / `BROWSERSTACK_BUILD_NAME`: nombre del proyecto/build en BrowserStack (por defecto `mobile-functional-visual`).
 - `TEST_USERNAME` / `TEST_PASSWORD`: credenciales dummy para el flujo de login (por defecto `demo@example.com` / `password`).
+- `REPORT_SCREENSHOT_DOWNSCALE`: grado de downgrade para las imágenes embebidas en el reporte Mochawesome (acepta `0-1` o `0-100`; por defecto `0.3`, `1` desactiva el downgrade). No afecta las capturas de comparación visual.
+
+### Ajuste de downscale del reporte
+El ajuste se hace con la variable de entorno `REPORT_SCREENSHOT_DOWNSCALE` (no editando código). Está pensada solo para las imágenes que quedan en `report/` para Mochawesome; no toca las capturas de comparación visual.
+
+- Más pesado (mejor calidad, mayor tamaño): valores altos, cerca de `1` o `100`.
+- Menos pesado (menor calidad, menor tamaño): valores bajos, cerca de `0.2` o `20`.
+- Valores típicos:
+  - `1` / `100`: sin downgrade (más pesado).
+  - `0.8` / `80`: alta calidad.
+  - `0.6` / `60`: balanceado (default).
+  - `0.4` / `40`: liviano.
+  - `0.2` / `20`: muy liviano (límite mínimo).
+
+Ejemplo:
+```bash
+REPORT_SCREENSHOT_DOWNSCALE=0.5 npm test
+```
 
 Las capturas base se guardan en `visual-baseline/` y las diferencias en `visual-output/`. Si la imagen base no existe se crea automáticamente en la primera ejecución.
 

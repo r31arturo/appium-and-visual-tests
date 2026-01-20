@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const { join, sep } = require('node:path');
 const { execSync } = require('node:child_process');
 const mergeResults = require('wdio-mochawesome-reporter/mergeResults');
+const sharp = require('sharp');
 
 const reportDir = join(process.cwd(), 'report');
 const reportDirs = {
@@ -19,8 +20,315 @@ const isCI = process.env.GITHUB_ACTIONS === 'true' || process.env.CI === 'true';
 const enableVisualComparison = ['1', 'true', 'yes', 'on'].includes(
   String(process.env.VISUAL_COMPARE || '').toLowerCase(),
 );
-const runModeLabel = enableVisualComparison ? 'Visual' : 'Funcional';
-const reportFileName = enableVisualComparison ? 'mochawesome-visual' : 'mochawesome-funcional';
+const runModeLabel = enableVisualComparison ? 'Visual' : 'Functional';
+const reportFileName = enableVisualComparison ? 'mochawesome-visual' : 'mochawesome-functional';
+const normalizeReportScreenshotDowngrade = (value, fallback) => {
+  const raw = typeof value === 'string' ? value.trim() : value;
+
+  if (raw === undefined || raw === null || raw === '') {
+    return fallback;
+  }
+
+  const parsed = Number.parseFloat(raw);
+
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  const normalized = parsed > 1 ? parsed / 100 : parsed;
+
+  if (normalized <= 0) {
+    return fallback;
+  }
+
+  return Math.min(Math.max(normalized, 0.2), 1);
+};
+// REPORT_SCREENSHOT_DOWNSCALE (0-1 or 0-100) controls mochawesome-only downgrade; 1 disables.
+const reportScreenshotScale = normalizeReportScreenshotDowngrade(
+  process.env.REPORT_SCREENSHOT_DOWNSCALE,
+  0.3,
+);
+const reportScreenshotQuality = Math.min(100, Math.max(20, Math.round(reportScreenshotScale * 100)));
+const reportScreenshotSettings = {
+  scale: reportScreenshotScale,
+  quality: reportScreenshotQuality,
+};
+const shouldCompressReportScreenshots = reportScreenshotSettings.scale < 1;
+const finalScreenshotMarker = '__FINAL_SCREENSHOT__'; // Sentinel to relabel the next screenshot in Mochawesome.
+const finalScreenshotLabel = '!!! FINAL SCREENSHOT (TEST PASSED) !!!';
+const failureScreenshotMarker = '__FAILURE_SCREENSHOT__';
+const failureScreenshotLabel = '!!! FAILURE SCREENSHOT (TEST FAILED) !!!';
+const screenshotLabelMap = {
+  [finalScreenshotMarker]: finalScreenshotLabel,
+  [failureScreenshotMarker]: failureScreenshotLabel,
+};
+const dataUrlPattern = /^data:image\/([a-zA-Z0-9.+-]+);base64,(.*)$/;
+
+const listFilesRecursive = (dir) => {
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+  return entries.flatMap((entry) => {
+    const fullPath = join(dir, entry.name);
+    return entry.isDirectory() ? listFilesRecursive(fullPath) : [fullPath];
+  });
+};
+
+const resolveOutputFormat = (formatHint, metadataFormat) => {
+  const hint = typeof formatHint === 'string' ? formatHint.toLowerCase() : '';
+
+  if (hint === 'jpg' || hint === 'jpeg') {
+    return 'jpeg';
+  }
+
+  if (hint === 'png') {
+    return 'png';
+  }
+
+  return metadataFormat === 'jpeg' ? 'jpeg' : 'png';
+};
+
+const compressImageBuffer = async (buffer, formatHint, settings) => {
+  const image = sharp(buffer, { failOnError: false });
+  const metadata = await image.metadata();
+  let pipeline = image;
+
+  if (settings.scale < 1 && (metadata.width || metadata.height)) {
+    const width = metadata.width ? Math.max(1, Math.round(metadata.width * settings.scale)) : null;
+    const height = metadata.height ? Math.max(1, Math.round(metadata.height * settings.scale)) : null;
+    pipeline = pipeline.resize({ width, height, fit: 'inside', withoutEnlargement: true });
+  }
+
+  const outputFormat = resolveOutputFormat(formatHint, metadata.format);
+
+  if (outputFormat === 'jpeg') {
+    const outputBuffer = await pipeline.jpeg({ quality: settings.quality, mozjpeg: true }).toBuffer();
+    return { buffer: outputBuffer, mime: 'image/jpeg' };
+  }
+
+  const colorCount = Math.min(256, Math.max(8, Math.round(256 * (settings.quality / 100))));
+  const outputBuffer = await pipeline
+    .png({ compressionLevel: 9, palette: true, quality: settings.quality, colors: colorCount })
+    .toBuffer();
+
+  return { buffer: outputBuffer, mime: 'image/png' };
+};
+
+const compressDataUrl = async (dataUrl, settings) => {
+  const match = dataUrlPattern.exec(dataUrl);
+
+  if (!match) {
+    return null;
+  }
+
+  const formatHint = match[1];
+  const inputBuffer = Buffer.from(match[2], 'base64');
+  const output = await compressImageBuffer(inputBuffer, formatHint, settings);
+
+  if (!output) {
+    return null;
+  }
+
+  if (output.buffer.length >= inputBuffer.length) {
+    return dataUrl;
+  }
+
+  return `data:${output.mime};base64,${output.buffer.toString('base64')}`;
+};
+
+const applyScreenshotLabels = (context) => {
+  if (!Array.isArray(context)) {
+    return { value: context, changed: false };
+  }
+
+  let changed = false;
+  const updated = [];
+  let pendingLabel = null;
+
+  for (const entry of context) {
+    if (entry && typeof entry === 'object' && screenshotLabelMap[entry.title]) {
+      pendingLabel = screenshotLabelMap[entry.title];
+      changed = true;
+      continue;
+    }
+
+    if (pendingLabel && entry && typeof entry === 'object' && entry.title === 'Screenshot') {
+      updated.push({ ...entry, title: pendingLabel });
+      pendingLabel = null;
+      changed = true;
+      continue;
+    }
+
+    updated.push(entry);
+  }
+
+  return { value: updated, changed };
+};
+
+const compressContextEntry = async (entry, settings, shouldCompress) => {
+  if (!shouldCompress) {
+    return { value: entry, changed: false };
+  }
+
+  if (!entry || typeof entry !== 'object') {
+    return { value: entry, changed: false };
+  }
+
+  if (typeof entry.value !== 'string') {
+    return { value: entry, changed: false };
+  }
+
+  if (!dataUrlPattern.test(entry.value)) {
+    return { value: entry, changed: false };
+  }
+
+  const compressed = await compressDataUrl(entry.value, settings);
+
+  if (!compressed || compressed === entry.value) {
+    return { value: entry, changed: false };
+  }
+
+  return { value: { ...entry, value: compressed }, changed: true };
+};
+
+const compressContextValue = async (context, settings, shouldCompress) => {
+  if (Array.isArray(context)) {
+    let changed = false;
+    const updated = [];
+    const labelResult = applyScreenshotLabels(context);
+    changed = changed || labelResult.changed;
+
+    for (const entry of labelResult.value) {
+      const result = await compressContextEntry(entry, settings, shouldCompress);
+      updated.push(result.value);
+      changed = changed || result.changed;
+    }
+
+    return { value: updated, changed };
+  }
+
+  if (context && typeof context === 'object') {
+    return compressContextEntry(context, settings, shouldCompress);
+  }
+
+  return { value: context, changed: false };
+};
+
+const compressItemContext = async (item, settings, shouldCompress) => {
+  if (!item || typeof item.context !== 'string') {
+    return false;
+  }
+
+  let parsed;
+
+  try {
+    parsed = JSON.parse(item.context);
+  } catch (error) {
+    return false;
+  }
+
+  const { value, changed } = await compressContextValue(parsed, settings, shouldCompress);
+
+  if (!changed) {
+    return false;
+  }
+
+  item.context = JSON.stringify(value);
+  return true;
+};
+
+const compressSuiteContexts = async (suite, settings, shouldCompress) => {
+  if (!suite) {
+    return false;
+  }
+
+  let changed = false;
+
+  if (Array.isArray(suite.tests)) {
+    for (const test of suite.tests) {
+      changed = (await compressItemContext(test, settings, shouldCompress)) || changed;
+    }
+  }
+
+  if (Array.isArray(suite.beforeHooks)) {
+    for (const hook of suite.beforeHooks) {
+      changed = (await compressItemContext(hook, settings, shouldCompress)) || changed;
+    }
+  }
+
+  if (Array.isArray(suite.afterHooks)) {
+    for (const hook of suite.afterHooks) {
+      changed = (await compressItemContext(hook, settings, shouldCompress)) || changed;
+    }
+  }
+
+  if (Array.isArray(suite.suites)) {
+    for (const child of suite.suites) {
+      changed = (await compressSuiteContexts(child, settings, shouldCompress)) || changed;
+    }
+  }
+
+  return changed;
+};
+
+const compressMochawesomeJsonScreenshots = async (filePath, settings) => {
+  if (!fs.existsSync(filePath)) {
+    return;
+  }
+
+  let data;
+
+  try {
+    data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch (error) {
+    console.warn('[Mochawesome] Failed to read merged JSON for compression:', error.message);
+    return;
+  }
+
+  let changed = false;
+  const results = Array.isArray(data.results) ? data.results : [];
+
+  for (const result of results) {
+    const suites = Array.isArray(result.suites) ? result.suites : [];
+
+    for (const suite of suites) {
+      changed = (await compressSuiteContexts(suite, settings, shouldCompressReportScreenshots)) || changed;
+    }
+  }
+
+  if (changed) {
+    fs.writeFileSync(filePath, JSON.stringify(data));
+  }
+};
+
+const compressMochawesomeScreenshotFiles = async (dir, settings) => {
+  if (!shouldCompressReportScreenshots || !fs.existsSync(dir)) {
+    return;
+  }
+
+  const files = listFilesRecursive(dir).filter((filePath) => /\.(png|jpe?g)$/i.test(filePath));
+
+  for (const filePath of files) {
+    try {
+      const inputBuffer = fs.readFileSync(filePath);
+      const extension = filePath.split('.').pop() || '';
+      const output = await compressImageBuffer(inputBuffer, extension, settings);
+
+      if (!output || output.buffer.length >= inputBuffer.length) {
+        continue;
+      }
+
+      const tempPath = `${filePath}.tmp`;
+      fs.writeFileSync(tempPath, output.buffer);
+      fs.renameSync(tempPath, filePath);
+    } catch (error) {
+      console.warn(`[Mochawesome] Failed to compress ${filePath}: ${error.message}`);
+    }
+  }
+};
 
 const browserStackUser = process.env.BROWSERSTACK_USERNAME || process.env.BROWSERSTACK_USER;
 const browserStackKey = process.env.BROWSERSTACK_ACCESS_KEY || process.env.BROWSERSTACK_KEY;
@@ -288,9 +596,10 @@ const config = {
 
   afterTest: async function (test, context, { error, passed }) {
     suiteHasFailures = suiteHasFailures || Boolean(error);
+    const sanitizedTitle = test.title.replace(/[^a-z0-9-_]+/gi, '_');
 
     if (!passed) {
-      const fileName = `${Date.now()}-${test.title.replace(/[^a-z0-9-_]+/gi, '_')}.png`;
+      const fileName = `${Date.now()}-${sanitizedTitle}.png`;
       const visualErrorDir = join(reportDirs.visualOutput, 'errorShots');
       const mochawesomeShotsDir = reportDirs.mochawesomeScreenshots;
       const mochawesomeShotPath = join(mochawesomeShotsDir, fileName);
@@ -298,8 +607,27 @@ const config = {
       fs.mkdirSync(mochawesomeShotsDir, { recursive: true });
       fs.mkdirSync(visualErrorDir, { recursive: true });
 
+      process.emit('wdio-mochawesome-reporter:addContext', {
+        title: failureScreenshotMarker,
+        value: true,
+      });
       await browser.saveScreenshot(mochawesomeShotPath);
       fs.copyFileSync(mochawesomeShotPath, visualShotPath);
+    } else {
+      const fileName = `${Date.now()}-${sanitizedTitle}-final.png`;
+      const mochawesomeShotsDir = reportDirs.mochawesomeScreenshots;
+      const mochawesomeShotPath = join(mochawesomeShotsDir, fileName);
+      fs.mkdirSync(mochawesomeShotsDir, { recursive: true });
+
+      try {
+        process.emit('wdio-mochawesome-reporter:addContext', {
+          title: finalScreenshotMarker,
+          value: true,
+        });
+        await browser.saveScreenshot(mochawesomeShotPath);
+      } catch (error) {
+        console.warn(`[Screenshot] Failed final capture for ${test.title}: ${error.message}`);
+      }
     }
 
     isInTest = false;
@@ -327,6 +655,18 @@ const config = {
       console.warn('[Mochawesome] Merged JSON not found, skipping report generation.');
       return;
     }
+
+    await compressMochawesomeJsonScreenshots(mergedFile, reportScreenshotSettings);
+
+    if (shouldCompressReportScreenshots) {
+      console.log(
+        `[Mochawesome] Downscaling report screenshots to ${Math.round(
+          reportScreenshotSettings.scale * 100,
+        )}%`,
+      );
+      await compressMochawesomeScreenshotFiles(reportDirs.mochawesomeScreenshots, reportScreenshotSettings);
+    }
+
     const reportTitle = `Mochawesome - ${runModeLabel}`;
     const reportPageTitle = `Tests (${runModeLabel})`;
     execSync(

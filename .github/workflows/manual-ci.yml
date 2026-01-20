@@ -43,13 +43,18 @@ jobs:
           mkdir -p apps
           python - <<'PY'
           import json
-          import urllib.request
           import os
+          import urllib.request
 
           tag = os.environ.get("NATIVE_DEMO_APP_TAG", "v1.0.8")
           print(f"Native Demo App tag: {tag}")
           api_url = f"https://api.github.com/repos/webdriverio/native-demo-app/releases/tags/{tag}"
-          with urllib.request.urlopen(api_url) as response:
+          headers = {"Accept": "application/vnd.github+json"}
+          token = os.environ.get("GITHUB_TOKEN")
+          if token:
+            headers["Authorization"] = f"Bearer {token}"
+          request = urllib.request.Request(api_url, headers=headers)
+          with urllib.request.urlopen(request) as response:
             payload = json.load(response)
 
           assets = payload.get("assets", [])

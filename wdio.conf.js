@@ -9,6 +9,7 @@ const reportDirs = {
   visualBaseline: join(reportDir, 'visual-baseline'),
   visualOutput: join(reportDir, 'visual-output'),
   junit: join(reportDir, 'junit'),
+  pageSource: join(reportDir, 'page-source'),
   mochawesomeJson: join(reportDir, 'mochawesome-json'),
   mochawesomeScreenshots: join(reportDir, 'mochawesome-screenshots'),
 };
@@ -649,7 +650,8 @@ const config = {
     const sanitizedTitle = test.title.replace(/[^a-z0-9-_]+/gi, '_');
 
     if (!passed) {
-      const fileName = `${Date.now()}-${sanitizedTitle}.png`;
+      const timestamp = Date.now();
+      const fileName = `${timestamp}-${sanitizedTitle}.png`;
       const visualErrorDir = join(reportDirs.visualOutput, 'errorShots');
       const mochawesomeShotsDir = reportDirs.mochawesomeScreenshots;
       const mochawesomeShotPath = join(mochawesomeShotsDir, fileName);
@@ -663,6 +665,15 @@ const config = {
       });
       await browser.saveScreenshot(mochawesomeShotPath);
       fs.copyFileSync(mochawesomeShotPath, visualShotPath);
+
+      try {
+        const source = await browser.getPageSource();
+        const sourceFileName = `${timestamp}-${sanitizedTitle}.xml`;
+        const sourcePath = join(reportDirs.pageSource, sourceFileName);
+        fs.writeFileSync(sourcePath, source);
+      } catch (sourceError) {
+        console.warn(`[PageSource] Failed to capture: ${sourceError.message}`);
+      }
     } else {
       const fileName = `${Date.now()}-${sanitizedTitle}-final.png`;
       const mochawesomeShotsDir = reportDirs.mochawesomeScreenshots;

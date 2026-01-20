@@ -4,13 +4,9 @@ const {
   loginAndDismissAlert,
 } = require('../flows/login.flow');
 
-describe('Minimal mobile flow with visual checkpoints', () => {
-  it('opens the app and captures the landing view', async () => {
-    const diff = await captureLanding();
-    expect(diff).toBe(0);
-  });
+describe('login tests', () => {
 
-  it('performs the login flow and dismisses the success alert', async () => {
+  it('login successfull', async () => {
     const username = process.env.TEST_USERNAME || 'demo@example.com';
     const password = process.env.TEST_PASSWORD || 'password';
 

@@ -19,13 +19,9 @@ const captureLanding = async (tag = 'landing') => {
 };
 
 const loginAndDismissAlert = async (username, password) => {
-  logStep('open login form');
   await LandingScreen.openLoginForm();
-  logStep('submit credentials');
   await LoginScreen.login(username, password);
-  logStep('dismiss success alert');
-  await LoginScreen.dismissSuccessAlert();
-  logStep('alert dismissed');
+  // await LoginScreen.dismissSuccessAlert();
 };
 
 module.exports = {

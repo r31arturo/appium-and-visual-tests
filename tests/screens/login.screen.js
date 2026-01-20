@@ -69,23 +69,25 @@ class LoginScreen {
 
     await this.alertOkButton.click();
 
-    if (driver.isAndroid) {
-      await browser.waitUntil(async () => {
-        const exists = await this.alertTitle.isExisting();
-        if (!exists) {
-          throw new Error('Success alert no longer exists while verifying dismissal.');
-        }
+    const missingAlert = { value: false };
 
-        return !(await this.alertTitle.isDisplayed());
-      }, {
-        timeout: 10000,
-        interval: 500,
-        timeoutMsg: 'Success alert is still visible after clicking OK.',
-      });
-      return;
+    await browser.waitUntil(async () => {
+      const exists = await this.alertTitle.isExisting();
+      if (!exists) {
+        missingAlert.value = true;
+        return true;
+      }
+
+      return !(await this.alertTitle.isDisplayed());
+    }, {
+      timeout: 10000,
+      interval: 500,
+      timeoutMsg: 'Success alert is still visible after clicking OK.',
+    });
+
+    if (missingAlert.value) {
+      throw new Error('Success alert disappeared before dismissal could be verified.');
     }
-
-    await expect(this.alertTitle).not.toBeDisplayed({ wait: 10000 });
   }
 }
 

@@ -19,6 +19,7 @@ Object.values(reportDirs).forEach((dir) => fs.mkdirSync(dir, { recursive: true }
 
 const isCI = process.env.GITHUB_ACTIONS === 'true' || process.env.CI === 'true';
 const wdioLogLevel = process.env.WDIO_LOG_LEVEL || 'info';
+const webdriverLogLevel = process.env.WDIO_WEBDRIVER_LOG_LEVEL || 'info';
 const appiumLogLevel = process.env.APPIUM_LOG_LEVEL || 'info';
 const showXcodeLog = ['1', 'true', 'yes', 'on'].includes(
   String(process.env.IOS_SHOW_XCODE_LOG || '').toLowerCase(),
@@ -357,6 +358,30 @@ const browserStackKey = process.env.BROWSERSTACK_ACCESS_KEY || process.env.BROWS
 const runOnBrowserStack = Boolean(browserStackUser && browserStackKey);
 const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
+const ensureXcodeDeveloperDir = () => {
+  if (isAndroid || runOnBrowserStack || process.platform !== 'darwin') {
+    return;
+  }
+
+  if (process.env.DEVELOPER_DIR) {
+    return;
+  }
+
+  const xcodeDeveloperDir = '/Applications/Xcode.app/Contents/Developer';
+
+  if (!fs.existsSync(xcodeDeveloperDir)) {
+    return;
+  }
+
+  try {
+    const selected = execSync('xcode-select -p', { encoding: 'utf8' }).trim();
+    if (selected.includes('CommandLineTools')) {
+      process.env.DEVELOPER_DIR = xcodeDeveloperDir;
+    }
+  } catch (error) {
+    process.env.DEVELOPER_DIR = xcodeDeveloperDir;
+  }
+};
 const iosSimulatorStartupTimeout = normalizePositiveInt(
   process.env.IOS_SIMULATOR_STARTUP_TIMEOUT,
   isCI ? 300000 : 120000,
@@ -370,6 +395,64 @@ const connectionRetryTimeout = normalizePositiveInt(
   process.env.WDIO_CONNECTION_RETRY_TIMEOUT,
   isCI && !isAndroid ? 300000 : 120000,
 );
+ensureXcodeDeveloperDir();
+const resolveIosSimulatorDefaults = () => {
+  if (isAndroid || runOnBrowserStack || process.platform !== 'darwin') {
+    return null;
+  }
+
+  if (process.env.DEVICE_NAME || process.env.PLATFORM_VERSION || process.env.UDID) {
+    return null;
+  }
+
+  const runtimesRaw = execSync('xcrun simctl list runtimes -j', { encoding: 'utf8' });
+  const bootedRaw = execSync('xcrun simctl list devices booted -j', { encoding: 'utf8' });
+  const runtimes = JSON.parse(runtimesRaw).runtimes || [];
+  const booted = JSON.parse(bootedRaw).devices || {};
+
+  const runtimeVersions = new Map();
+  runtimes.forEach((runtime) => {
+    if (!runtime || !runtime.isAvailable || typeof runtime.name !== 'string') {
+      return;
+    }
+    const match = /iOS ([0-9.]+)/.exec(runtime.name);
+    if (match && runtime.identifier) {
+      runtimeVersions.set(runtime.identifier, match[1]);
+    }
+  });
+
+  const candidates = [];
+  Object.entries(booted).forEach(([runtimeId, devices]) => {
+    if (!runtimeVersions.has(runtimeId)) {
+      return;
+    }
+    (devices || []).forEach((device) => {
+      if (!device?.udid || !device.name) {
+        return;
+      }
+      candidates.push({ device, runtimeId });
+    });
+  });
+
+  if (!candidates.length) {
+    throw new Error('No booted iOS simulator found. Open Simulator or set DEVICE_NAME/PLATFORM_VERSION/UDID.');
+  }
+
+  const pick =
+    candidates.find((entry) => entry.device.name.startsWith('iPhone')) || candidates[0];
+  const platformVersion = runtimeVersions.get(pick.runtimeId);
+
+  if (!platformVersion) {
+    throw new Error('Unable to resolve iOS platform version for the booted simulator.');
+  }
+
+  return {
+    deviceName: pick.device.name,
+    platformVersion,
+    udid: pick.device.udid,
+  };
+};
+const iosSimDefaults = resolveIosSimulatorDefaults();
 const findLocalApp = () => {
   const appsDir = join(process.cwd(), 'apps');
 
@@ -377,12 +460,50 @@ const findLocalApp = () => {
     return null;
   }
 
-  const candidates = fs
-    .readdirSync(appsDir)
-    .filter((file) => file.endsWith('.apk') || file.endsWith('.ipa'))
-    .map((file) => join(appsDir, file));
+  const apkCandidates = [];
+  const ipaCandidates = [];
+  const appBundleCandidates = [];
+  const stack = [appsDir];
 
-  return candidates[0] || null;
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      const lower = entry.name.toLowerCase();
+
+      if (entry.isDirectory()) {
+        if (lower.endsWith('.app')) {
+          appBundleCandidates.push(fullPath);
+          continue;
+        }
+        stack.push(fullPath);
+        continue;
+      }
+
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      if (lower.endsWith('.apk')) {
+        apkCandidates.push(fullPath);
+      } else if (lower.endsWith('.ipa')) {
+        ipaCandidates.push(fullPath);
+      }
+    }
+  }
+
+  const sortPaths = (list) => list.sort((a, b) => a.localeCompare(b));
+  sortPaths(apkCandidates);
+  sortPaths(appBundleCandidates);
+  sortPaths(ipaCandidates);
+
+  if (isAndroid) {
+    return apkCandidates[0] || null;
+  }
+
+  return appBundleCandidates[0] || ipaCandidates[0] || null;
 };
 const appId = (() => {
   if (runOnBrowserStack) {
@@ -393,7 +514,7 @@ const appId = (() => {
 
   if (!localApp) {
     throw new Error(
-      'APP is required for local runs (path to .apk/.ipa). Example: APP=./apps/tu.apk npm run test:ci:login',
+      'APP is required for local runs (path to .apk/.app/.ipa). Example: APP=./apps/tu.apk npm run test:ci:login',
     );
   }
 
@@ -559,9 +680,11 @@ const baseCaps = {
 
 const localCaps = {
   ...baseCaps,
-  'appium:deviceName': process.env.DEVICE_NAME || (isAndroid ? 'Android Emulator' : 'iPhone Simulator'),
-  'appium:platformVersion': process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
-  'appium:udid': process.env.UDID || (isAndroid ? 'emulator-5554' : 'auto'),
+  'appium:deviceName':
+    process.env.DEVICE_NAME || (isAndroid ? 'Android Emulator' : iosSimDefaults?.deviceName || 'iPhone Simulator'),
+  'appium:platformVersion':
+    process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : iosSimDefaults?.platformVersion || '17.0'),
+  'appium:udid': process.env.UDID || (isAndroid ? 'emulator-5554' : iosSimDefaults?.udid || 'auto'),
 };
 const localCapsWithIosTuning = isAndroid
   ? localCaps
@@ -593,6 +716,9 @@ const config = {
   specs,
   maxInstances: 1,
   logLevel: wdioLogLevel,
+  logLevels: {
+    webdriver: webdriverLogLevel,
+  },
   ...(runOnBrowserStack
     ? { user: browserStackUser, key: browserStackKey, hostname: 'hub.browserstack.com', port: 443, path: '/wd/hub' }
     : {
@@ -672,7 +798,6 @@ const config = {
         const sourcePath = join(reportDirs.pageSource, sourceFileName);
         fs.writeFileSync(sourcePath, source);
       } catch (sourceError) {
-        console.warn(`[PageSource] Failed to capture: ${sourceError.message}`);
       }
     } else {
       const fileName = `${Date.now()}-${sanitizedTitle}-final.png`;

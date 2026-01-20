@@ -5,6 +5,8 @@
   "main": "wdio.conf.js",
   "scripts": {
     "test": "wdio run ./wdio.conf.js",
+    "test:android": "PLATFORM_NAME=Android wdio run ./wdio.conf.js",
+    "test:ios": "PLATFORM_NAME=iOS wdio run ./wdio.conf.js",
     "visual": "VISUAL_COMPARE=true wdio run ./wdio.conf.js",
     "test:ci": "wdio run ./wdio.conf.js",
     "test:ci:login": "wdio run ./wdio.conf.js --spec ./tests/specs/login.spec.js"
@@ -31,6 +33,7 @@
     "@wdio/visual-service": "^9.0.0",
     "appium": "^3.1.1",
     "appium-uiautomator2-driver": "^6.7.10",
+    "appium-xcuitest-driver": "^10.16.2",
     "mocha": "^11.7.5",
     "mochawesome-report-generator": "^6.3.2",
     "sharp": "^0.34.5",

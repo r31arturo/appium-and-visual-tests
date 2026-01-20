@@ -6,6 +6,8 @@ Proyecto base súper compacto para ejecutar pruebas funcionales y de regresión 
 - Node.js 18+
 - Cuenta de BrowserStack (variables `BROWSERSTACK_USER`/`BROWSERSTACK_KEY` o `BROWSERSTACK_USERNAME`/`BROWSERSTACK_ACCESS_KEY`). Configúralas por variables de entorno o GitHub Secrets, nunca en el repositorio.
 - App bajo prueba publicado en BrowserStack (`APP` con valor `bs://...`) o ruta local al binario cuando se use Appium local.
+- (Local Android) Android SDK + emulador/dispositivo y `adb` en PATH.
+- (Local iOS) macOS + Xcode + runtimes de iOS instalados (usa `xcode-select` apuntando a Xcode, no CommandLineTools).
 
 ## Instalación
 ```bash
@@ -16,12 +18,14 @@ npm install
 Las opciones principales viven en `wdio.conf.js` y se pueden sobreescribir con variables de entorno:
 - `BROWSERSTACK_USER` / `BROWSERSTACK_KEY`: habilitan el servicio de BrowserStack.
 - `BROWSERSTACK_USERNAME` / `BROWSERSTACK_ACCESS_KEY`: alternativa de nombres para las credenciales.
-- `APP`: identificador de la app en BrowserStack (`bs://...`) o ruta al binario local.
+- `APP`: identificador de la app en BrowserStack (`bs://...`) o ruta al binario local (`.apk` Android, `.app` iOS Simulator, `.ipa` iOS real).
 - `PLATFORM_NAME`: `Android` o `iOS` (por defecto `Android`).
 - `DEVICE_NAME` / `PLATFORM_VERSION`: para usar un dispositivo/OS específico.
 - `BROWSERSTACK_PROJECT_NAME` / `BROWSERSTACK_BUILD_NAME`: nombre del proyecto/build en BrowserStack (por defecto `mobile-functional-visual`).
 - `TEST_USERNAME` / `TEST_PASSWORD`: credenciales dummy para el flujo de login (por defecto `demo@example.com` / `password`).
 - `REPORT_SCREENSHOT_DOWNSCALE`: grado de downgrade para las imágenes embebidas en el reporte Mochawesome (acepta `0-1` o `0-100`; por defecto `0.3`, `1` desactiva el downgrade). No afecta las capturas de comparación visual.
+- `WDIO_LOG_LEVEL`: nivel global de logs de WDIO (por defecto `info`).
+- `WDIO_WEBDRIVER_LOG_LEVEL`: nivel de logs del logger `webdriver` (por defecto `warn` para no imprimir page source).
 
 ### Ajuste de downscale del reporte
 El ajuste se hace con la variable de entorno `REPORT_SCREENSHOT_DOWNSCALE` (no editando código). Está pensada solo para las imágenes que quedan en `report/` para Mochawesome; no toca las capturas de comparación visual.
@@ -68,17 +72,41 @@ Ejecuta el workflow **Manual CI (BrowserStack)** y define el `APP` (y opcionalme
 - Para fijar la versión de iOS en CI, define `IOS_RUNTIME_MAJOR` (ej: `18`) o `PLATFORM_VERSION` (ej: `18.6`).
 - Si el simulador tarda en arrancar, ajusta `IOS_SIMULATOR_STARTUP_TIMEOUT` (milisegundos).
 
-### Ejecutar contra Appium local
-Asegúrate de tener el servidor Appium 3 corriendo en `127.0.0.1:4723` y expón el binario de la app:
+### Ejecutar local (Appium)
+El servicio de Appium se levanta automáticamente por WDIO (no necesitas iniciarlo manualmente).
+
+#### Comandos rápidos
 ```bash
-export APP="/ruta/a/tu/app.apk" # o .ipa
+npm run test:android
+npm run test:ios
+```
+> Si `APP` no está definido, se busca automáticamente en `apps/` según `PLATFORM_NAME`.
+
+#### Android (emulador o dispositivo)
+```bash
+npx appium driver install uiautomator2
+export PLATFORM_NAME="Android"
+export APP="/ruta/a/tu/app.apk"
+# Opcional: export DEVICE_NAME="Android Emulator" PLATFORM_VERSION="14.0" UDID="emulator-5554"
+npm test
+```
+
+#### iOS (Simulator)
+```bash
+npx appium driver install xcuitest
+export PLATFORM_NAME="iOS"
+export APP="/ruta/a/tu/app.app" # .app para Simulator, .ipa para dispositivo real
+# Opcional: export DEVICE_NAME="iPhone 16 Pro" PLATFORM_VERSION="26.2" UDID="<udid>"
 npm test
 ```
 
 Puedes obtener binarios de ejemplo listos para Android e iOS desde el repositorio de WebdriverIO:
 https://github.com/webdriverio/native-demo-app/releases
 
-Usa `APP` para apuntar al `.apk` o `.ipa` descargado (o súbelo a BrowserStack y usa el `bs://...` resultante). Estos binarios funcionan bien para validar el flujo completo de WebdriverIO + Appium.
+Usa `APP` para apuntar al `.apk`, `.app` (iOS Simulator) o `.ipa` descargado (o súbelo a BrowserStack y usa el `bs://...` resultante). Estos binarios funcionan bien para validar el flujo completo de WebdriverIO + Appium.
+Para iOS Simulator, descarga el `.zip`, descomprímelo y apunta `APP` al `.app` resultante.
+Si quieres usar auto-detección, deja el binario en `apps/` (o subcarpetas) y ejecuta `npm run test:android` o `npm run test:ios`.
+En iOS local, si no defines `DEVICE_NAME`/`PLATFORM_VERSION`/`UDID`, se usa el simulador iOS **ya booted** (preferencia iPhone). Si no hay un simulador abierto, la ejecución falla.
 
 ## Estructura POM + Flows
 La suite está organizada en **Page Objects + Flows**, sin Cucumber ni Screenplay:

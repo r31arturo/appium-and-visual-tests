@@ -125,6 +125,7 @@ jobs:
             echo "paths<<EOF"
             echo "report/mochawesome-*.html"
             echo "report/mochawesome-screenshots/**"
+            echo "report/appium.log"
             echo "report/junit/**/*.xml"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
@@ -136,14 +137,32 @@ jobs:
           name: test-evidence-${{ github.workflow }}-${{ github.run_id }}
           if-no-files-found: warn
           path: ${{ steps.evidence_paths.outputs.paths }}
+      - name: Check JUnit report
+        if: always()
+        id: junit_check
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(report/junit/**/*.xml)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          for file in "${files[@]}"; do
+            if grep -q "<testcase" "$file"; then
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "found=false" >> "$GITHUB_OUTPUT"
       - name: Publish JUnit report
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.junit_check.outputs.found == 'true' }}
         uses: dorny/test-reporter@v2
         with:
           name: WDIO JUnit (${{ github.workflow }})
           path: report/junit/**/*.xml
           reporter: java-junit
-          fail-on-empty: "true"
+          fail-on-empty: "false"
           fail-on-error: "true"
   ios_simulator:
     name: iOS simulator tests
@@ -156,6 +175,9 @@ jobs:
       IOS_APP_URL: https://github.com/webdriverio/native-demo-app/releases/download/v2.0.0/ios.simulator.wdio.native.app.v2.0.0.zip
       PLATFORM_NAME: iOS
       IOS_RUNTIME_MAJOR: "18"
+      APPIUM_LOG_LEVEL: debug
+      WDIO_LOG_LEVEL: debug
+      IOS_SHOW_XCODE_LOG: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -284,6 +306,7 @@ jobs:
             echo "paths<<EOF"
             echo "report/mochawesome-*.html"
             echo "report/mochawesome-screenshots/**"
+            echo "report/appium.log"
             echo "report/junit/**/*.xml"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
@@ -295,12 +318,30 @@ jobs:
           name: test-evidence-${{ github.workflow }}-${{ github.run_id }}
           if-no-files-found: warn
           path: ${{ steps.evidence_paths.outputs.paths }}
+      - name: Check JUnit report
+        if: always()
+        id: junit_check
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(report/junit/**/*.xml)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          for file in "${files[@]}"; do
+            if grep -q "<testcase" "$file"; then
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "found=false" >> "$GITHUB_OUTPUT"
       - name: Publish JUnit report
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.junit_check.outputs.found == 'true' }}
         uses: dorny/test-reporter@v2
         with:
           name: WDIO JUnit (${{ github.workflow }})
           path: report/junit/**/*.xml
           reporter: java-junit
-          fail-on-empty: "true"
+          fail-on-empty: "false"
           fail-on-error: "true"

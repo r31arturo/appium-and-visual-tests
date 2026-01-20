@@ -17,6 +17,12 @@ fs.mkdirSync(reportDir, { recursive: true });
 Object.values(reportDirs).forEach((dir) => fs.mkdirSync(dir, { recursive: true }));
 
 const isCI = process.env.GITHUB_ACTIONS === 'true' || process.env.CI === 'true';
+const wdioLogLevel = process.env.WDIO_LOG_LEVEL || 'info';
+const appiumLogLevel = process.env.APPIUM_LOG_LEVEL || 'info';
+const showXcodeLog = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.IOS_SHOW_XCODE_LOG || '').toLowerCase(),
+);
+const appiumLogPath = process.env.APPIUM_LOG_PATH || (isCI ? join(reportDir, 'appium.log') : '');
 const enableVisualComparison = ['1', 'true', 'yes', 'on'].includes(
   String(process.env.VISUAL_COMPARE || '').toLowerCase(),
 );
@@ -498,12 +504,18 @@ if (runOnBrowserStack) {
     },
   ]);
 } else {
-  services.push([
-    'appium',
-    {
-      args: { basePath: '/wd/hub' },
+  const appiumServiceOptions = {
+    args: {
+      basePath: '/wd/hub',
+      logLevel: appiumLogLevel,
     },
-  ]);
+  };
+
+  if (appiumLogPath) {
+    appiumServiceOptions.logPath = appiumLogPath;
+  }
+
+  services.push(['appium', appiumServiceOptions]);
 }
 
 if (enableVisualComparison) {
@@ -539,6 +551,7 @@ const localCapsWithIosTuning = isAndroid
   : {
       ...localCaps,
       'appium:simulatorStartupTimeout': resolveIosSimulatorStartupTimeout(),
+      ...(showXcodeLog ? { 'appium:showXcodeLog': true } : {}),
     };
 
 const bsCaps = {
@@ -560,7 +573,7 @@ const config = {
   runner: 'local',
   specs,
   maxInstances: 1,
-  logLevel: 'info',
+  logLevel: wdioLogLevel,
   ...(runOnBrowserStack
     ? { user: browserStackUser, key: browserStackKey, hostname: 'hub.browserstack.com', port: 443, path: '/wd/hub' }
     : {

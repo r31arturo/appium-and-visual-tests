@@ -134,7 +134,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-evidence-${{ github.workflow }}-${{ github.run_id }}
+          name: test-evidence-${{ github.workflow }}-${{ github.job }}-${{ github.run_id }}
           if-no-files-found: warn
           path: ${{ steps.evidence_paths.outputs.paths }}
       - name: Check JUnit report
@@ -179,6 +179,10 @@ jobs:
       APPIUM_LOG_LEVEL: debug
       WDIO_LOG_LEVEL: debug
       IOS_SHOW_XCODE_LOG: "true"
+      IOS_SIMULATOR_STARTUP_TIMEOUT: "600000"
+      IOS_WDA_LAUNCH_TIMEOUT: "600000"
+      IOS_WDA_CONNECTION_TIMEOUT: "600000"
+      WDIO_CONNECTION_RETRY_TIMEOUT: "600000"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -320,7 +324,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-evidence-${{ github.workflow }}-${{ github.run_id }}
+          name: test-evidence-${{ github.workflow }}-${{ github.job }}-${{ github.run_id }}
           if-no-files-found: warn
           path: ${{ steps.evidence_paths.outputs.paths }}
       - name: Check JUnit report

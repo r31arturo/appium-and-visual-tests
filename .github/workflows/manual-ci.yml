@@ -295,6 +295,7 @@ jobs:
         shell: bash
         run: |
           xcrun simctl boot "$UDID" || true
+          open -a Simulator --args -CurrentDeviceUDID "$UDID"
           xcrun simctl bootstatus "$UDID" -b
       - name: Run iOS simulator tests
         shell: bash

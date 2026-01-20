@@ -49,6 +49,21 @@ const normalizeReportScreenshotDowngrade = (value, fallback) => {
 
   return Math.min(Math.max(normalized, 0.2), 1);
 };
+const normalizePositiveInt = (value, fallback) => {
+  const raw = typeof value === 'string' ? value.trim() : value;
+
+  if (raw === undefined || raw === null || raw === '') {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
+};
 // REPORT_SCREENSHOT_DOWNSCALE (0-1 or 0-100) controls mochawesome-only downgrade; 1 disables.
 const reportScreenshotScale = normalizeReportScreenshotDowngrade(
   process.env.REPORT_SCREENSHOT_DOWNSCALE,
@@ -341,18 +356,19 @@ const browserStackKey = process.env.BROWSERSTACK_ACCESS_KEY || process.env.BROWS
 const runOnBrowserStack = Boolean(browserStackUser && browserStackKey);
 const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
-const resolveIosSimulatorStartupTimeout = () => {
-  const raw = process.env.IOS_SIMULATOR_STARTUP_TIMEOUT;
-
-  if (raw !== undefined) {
-    const parsed = Number.parseInt(raw, 10);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
-    }
-  }
-
-  return isCI ? 300000 : 120000;
-};
+const iosSimulatorStartupTimeout = normalizePositiveInt(
+  process.env.IOS_SIMULATOR_STARTUP_TIMEOUT,
+  isCI ? 300000 : 120000,
+);
+const iosWdaLaunchTimeout = normalizePositiveInt(process.env.IOS_WDA_LAUNCH_TIMEOUT, isCI ? 240000 : 120000);
+const iosWdaConnectionTimeout = normalizePositiveInt(
+  process.env.IOS_WDA_CONNECTION_TIMEOUT,
+  isCI ? 240000 : 120000,
+);
+const connectionRetryTimeout = normalizePositiveInt(
+  process.env.WDIO_CONNECTION_RETRY_TIMEOUT,
+  isCI && !isAndroid ? 300000 : 120000,
+);
 const findLocalApp = () => {
   const appsDir = join(process.cwd(), 'apps');
 
@@ -550,7 +566,9 @@ const localCapsWithIosTuning = isAndroid
   ? localCaps
   : {
       ...localCaps,
-      'appium:simulatorStartupTimeout': resolveIosSimulatorStartupTimeout(),
+      'appium:simulatorStartupTimeout': iosSimulatorStartupTimeout,
+      'appium:wdaLaunchTimeout': iosWdaLaunchTimeout,
+      'appium:wdaConnectionTimeout': iosWdaConnectionTimeout,
       ...(showXcodeLog ? { 'appium:showXcodeLog': true } : {}),
     };
 
@@ -614,6 +632,7 @@ const config = {
   baseUrl: 'http://localhost',
   capabilities: [runOnBrowserStack ? bsCaps : localCapsWithIosTuning],
   waitforTimeout: 20000,
+  connectionRetryTimeout,
   connectionRetryCount: 2,
 
   before: async () => {

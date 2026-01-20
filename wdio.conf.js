@@ -335,6 +335,18 @@ const browserStackKey = process.env.BROWSERSTACK_ACCESS_KEY || process.env.BROWS
 const runOnBrowserStack = Boolean(browserStackUser && browserStackKey);
 const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
+const resolveIosSimulatorStartupTimeout = () => {
+  const raw = process.env.IOS_SIMULATOR_STARTUP_TIMEOUT;
+
+  if (raw !== undefined) {
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return isCI ? 300000 : 120000;
+};
 const findLocalApp = () => {
   const appsDir = join(process.cwd(), 'apps');
 
@@ -522,6 +534,12 @@ const localCaps = {
   'appium:platformVersion': process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
   'appium:udid': process.env.UDID || (isAndroid ? 'emulator-5554' : 'auto'),
 };
+const localCapsWithIosTuning = isAndroid
+  ? localCaps
+  : {
+      ...localCaps,
+      'appium:simulatorStartupTimeout': resolveIosSimulatorStartupTimeout(),
+    };
 
 const bsCaps = {
   ...baseCaps,
@@ -581,7 +599,7 @@ const config = {
   },
   services,
   baseUrl: 'http://localhost',
-  capabilities: [runOnBrowserStack ? bsCaps : localCaps],
+  capabilities: [runOnBrowserStack ? bsCaps : localCapsWithIosTuning],
   waitforTimeout: 20000,
   connectionRetryCount: 2,
 

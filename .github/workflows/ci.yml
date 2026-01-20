@@ -155,6 +155,7 @@ jobs:
     env:
       IOS_APP_URL: https://github.com/webdriverio/native-demo-app/releases/download/v2.0.0/ios.simulator.wdio.native.app.v2.0.0.zip
       PLATFORM_NAME: iOS
+      IOS_RUNTIME_MAJOR: "18"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -211,11 +212,33 @@ jobs:
           if not ios_runtimes:
               sys.exit("No iOS runtimes available on runner")
 
-          def parse_version(name):
+          desired_version = (os.environ.get("PLATFORM_VERSION") or "").strip()
+          desired_major_raw = (os.environ.get("IOS_RUNTIME_MAJOR") or "").strip()
+          desired_major = int(desired_major_raw) if desired_major_raw.isdigit() else None
+
+          def runtime_version(name):
               match = re.search(r"iOS ([0-9.]+)", name)
-              if not match:
+              return match.group(1) if match else None
+
+          def parse_version(name):
+              version = runtime_version(name)
+              if not version:
                   return (0,)
-              return tuple(int(part) for part in match.group(1).split("."))
+              return tuple(int(part) for part in version.split("."))
+
+          filtered = ios_runtimes
+          if desired_version:
+              filtered = [r for r in ios_runtimes if runtime_version(r.get("name", "")) and runtime_version(r.get("name", "")).startswith(desired_version)]
+          elif desired_major is not None:
+              filtered = [
+                  r
+                  for r in ios_runtimes
+                  if runtime_version(r.get("name", ""))
+                  and int(runtime_version(r.get("name", "")).split(".")[0]) == desired_major
+              ]
+
+          if filtered:
+              ios_runtimes = filtered
 
           ios_runtimes.sort(key=lambda r: parse_version(r.get("name", "")), reverse=True)
           runtime = ios_runtimes[0]

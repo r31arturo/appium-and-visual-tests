@@ -65,6 +65,8 @@ Ejecuta el workflow **Manual CI (BrowserStack)** y define el `APP` (y opcionalme
 - **Manual CI (Emulator)** permite disparar Android/iOS manualmente, pasar un `spec` opcional y elegir `platform` (`android`, `ios` o `both`).
 - El job de iOS descarga el binario de simulador desde:
   https://github.com/webdriverio/native-demo-app/releases/download/v2.0.0/ios.simulator.wdio.native.app.v2.0.0.zip
+- Para fijar la versión de iOS en CI, define `IOS_RUNTIME_MAJOR` (ej: `18`) o `PLATFORM_VERSION` (ej: `18.6`).
+- Si el simulador tarda en arrancar, ajusta `IOS_SIMULATOR_STARTUP_TIMEOUT` (milisegundos).
 
 ### Ejecutar contra Appium local
 Asegúrate de tener el servidor Appium 3 corriendo en `127.0.0.1:4723` y expón el binario de la app:

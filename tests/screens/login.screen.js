@@ -2,6 +2,7 @@ const { expect } = require('@wdio/globals');
 const {
   iosPredicateName,
   androidResourceId,
+  androidResourceIdMatches,
   accessibilityId,
 } = require('../utils/selectors');
 
@@ -32,7 +33,7 @@ class LoginScreen {
 
   get alertTitle() {
     return $(driver.isAndroid
-      ? 'id:android:id/alertTitle'
+      ? androidResourceIdMatches('.*:id/alert(_title|Title)')
       : '-ios predicate string:type == "XCUIElementTypeAlert"');
   }
 

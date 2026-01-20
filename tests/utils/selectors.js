@@ -6,10 +6,13 @@
 
 const iosPredicateName = (name) => `-ios predicate string:name == "${name}"`;
 const androidResourceId = (id) => `android=new UiSelector().resourceId("${id}")`;
+const androidResourceIdMatches = (pattern) =>
+  `android=new UiSelector().resourceIdMatches("${pattern}")`;
 const accessibilityId = (id) => `accessibility id:${id}`;
 
 module.exports = {
   iosPredicateName,
   androidResourceId,
+  androidResourceIdMatches,
   accessibilityId,
 };

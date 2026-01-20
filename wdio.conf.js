@@ -2,7 +2,14 @@ const fs = require('node:fs');
 const { join, sep } = require('node:path');
 const { execSync } = require('node:child_process');
 const mergeResults = require('wdio-mochawesome-reporter/mergeResults');
-const sharp = require('sharp');
+let sharp = null;
+let sharpLoadError = null;
+
+try {
+  sharp = require('sharp');
+} catch (error) {
+  sharpLoadError = error;
+}
 
 const reportDir = join(process.cwd(), 'report');
 const reportDirs = {
@@ -76,7 +83,11 @@ const reportScreenshotSettings = {
   scale: reportScreenshotScale,
   quality: reportScreenshotQuality,
 };
-const shouldCompressReportScreenshots = reportScreenshotSettings.scale < 1;
+const shouldCompressReportScreenshots = reportScreenshotSettings.scale < 1 && Boolean(sharp);
+if (reportScreenshotSettings.scale < 1 && !sharp) {
+  const errorMessage = sharpLoadError && sharpLoadError.message ? ` (${sharpLoadError.message})` : '';
+  console.warn(`[Config] sharp unavailable${errorMessage}; report screenshot compression disabled.`);
+}
 const finalScreenshotMarker = '__FINAL_SCREENSHOT__'; // Sentinel to relabel the next screenshot in Mochawesome.
 const finalScreenshotLabel = '!!! FINAL SCREENSHOT (TEST PASSED) !!!';
 const failureScreenshotMarker = '__FAILURE_SCREENSHOT__';
@@ -115,6 +126,10 @@ const resolveOutputFormat = (formatHint, metadataFormat) => {
 };
 
 const compressImageBuffer = async (buffer, formatHint, settings) => {
+  if (!sharp) {
+    return null;
+  }
+
   const image = sharp(buffer, { failOnError: false });
   const metadata = await image.metadata();
   let pipeline = image;

@@ -60,6 +60,12 @@ Ejecuta el workflow **Manual CI (BrowserStack)** y define el `APP` (y opcionalme
 
 > Nota: si alguna credencial estuvo expuesta públicamente, rótala de inmediato en BrowserStack y actualiza los secrets.
 
+### CI en simuladores (GitHub Actions)
+- **CI (Emulator)** corre en cada PR contra `main` y ejecuta Android (Ubuntu) + iOS (macOS).
+- **Manual CI (Emulator)** permite disparar Android/iOS manualmente, pasar un `spec` opcional y elegir `platform` (`android`, `ios` o `both`).
+- El job de iOS descarga el binario de simulador desde:
+  https://github.com/webdriverio/native-demo-app/releases/download/v2.0.0/ios.simulator.wdio.native.app.v2.0.0.zip
+
 ### Ejecutar contra Appium local
 Asegúrate de tener el servidor Appium 3 corriendo en `127.0.0.1:4723` y expón el binario de la app:
 ```bash

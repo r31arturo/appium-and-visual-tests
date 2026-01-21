@@ -2,7 +2,7 @@ const { iosPredicateName, accessibilityId } = require('../utils/selectors');
 
 class LandingScreen {
   get loginButton() {
-    return $(driver.isAndroid ? accessibilityId('Login') : iosPredicateName('login'));
+    return $(driver.isAndroid ? accessibilityId('Login') : iosPredicateName('Login'));
   }
 
   async relaunchApp() {

@@ -2,13 +2,21 @@ const fs = require('node:fs');
 const { join, sep } = require('node:path');
 const { execSync } = require('node:child_process');
 const mergeResults = require('wdio-mochawesome-reporter/mergeResults');
-const sharp = require('sharp');
+let sharp = null;
+let sharpLoadError = null;
+
+try {
+  sharp = require('sharp');
+} catch (error) {
+  sharpLoadError = error;
+}
 
 const reportDir = join(process.cwd(), 'report');
 const reportDirs = {
   visualBaseline: join(reportDir, 'visual-baseline'),
   visualOutput: join(reportDir, 'visual-output'),
   junit: join(reportDir, 'junit'),
+  pageSource: join(reportDir, 'page-source'),
   mochawesomeJson: join(reportDir, 'mochawesome-json'),
   mochawesomeScreenshots: join(reportDir, 'mochawesome-screenshots'),
 };
@@ -17,6 +25,13 @@ fs.mkdirSync(reportDir, { recursive: true });
 Object.values(reportDirs).forEach((dir) => fs.mkdirSync(dir, { recursive: true }));
 
 const isCI = process.env.GITHUB_ACTIONS === 'true' || process.env.CI === 'true';
+const wdioLogLevel = process.env.WDIO_LOG_LEVEL || 'info';
+const webdriverLogLevel = process.env.WDIO_WEBDRIVER_LOG_LEVEL || 'info';
+const appiumLogLevel = process.env.APPIUM_LOG_LEVEL || 'info';
+const showXcodeLog = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.IOS_SHOW_XCODE_LOG || '').toLowerCase(),
+);
+const appiumLogPath = process.env.APPIUM_LOG_PATH || (isCI ? join(reportDir, 'appium.log') : '');
 const enableVisualComparison = ['1', 'true', 'yes', 'on'].includes(
   String(process.env.VISUAL_COMPARE || '').toLowerCase(),
 );
@@ -43,6 +58,21 @@ const normalizeReportScreenshotDowngrade = (value, fallback) => {
 
   return Math.min(Math.max(normalized, 0.2), 1);
 };
+const normalizePositiveInt = (value, fallback) => {
+  const raw = typeof value === 'string' ? value.trim() : value;
+
+  if (raw === undefined || raw === null || raw === '') {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
+};
 // REPORT_SCREENSHOT_DOWNSCALE (0-1 or 0-100) controls mochawesome-only downgrade; 1 disables.
 const reportScreenshotScale = normalizeReportScreenshotDowngrade(
   process.env.REPORT_SCREENSHOT_DOWNSCALE,
@@ -53,7 +83,11 @@ const reportScreenshotSettings = {
   scale: reportScreenshotScale,
   quality: reportScreenshotQuality,
 };
-const shouldCompressReportScreenshots = reportScreenshotSettings.scale < 1;
+const shouldCompressReportScreenshots = reportScreenshotSettings.scale < 1 && Boolean(sharp);
+if (reportScreenshotSettings.scale < 1 && !sharp) {
+  const errorMessage = sharpLoadError && sharpLoadError.message ? ` (${sharpLoadError.message})` : '';
+  console.warn(`[Config] sharp unavailable${errorMessage}; report screenshot compression disabled.`);
+}
 const finalScreenshotMarker = '__FINAL_SCREENSHOT__'; // Sentinel to relabel the next screenshot in Mochawesome.
 const finalScreenshotLabel = '!!! FINAL SCREENSHOT (TEST PASSED) !!!';
 const failureScreenshotMarker = '__FAILURE_SCREENSHOT__';
@@ -92,6 +126,10 @@ const resolveOutputFormat = (formatHint, metadataFormat) => {
 };
 
 const compressImageBuffer = async (buffer, formatHint, settings) => {
+  if (!sharp) {
+    return null;
+  }
+
   const image = sharp(buffer, { failOnError: false });
   const metadata = await image.metadata();
   let pipeline = image;
@@ -335,6 +373,101 @@ const browserStackKey = process.env.BROWSERSTACK_ACCESS_KEY || process.env.BROWS
 const runOnBrowserStack = Boolean(browserStackUser && browserStackKey);
 const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
+const ensureXcodeDeveloperDir = () => {
+  if (isAndroid || runOnBrowserStack || process.platform !== 'darwin') {
+    return;
+  }
+
+  if (process.env.DEVELOPER_DIR) {
+    return;
+  }
+
+  const xcodeDeveloperDir = '/Applications/Xcode.app/Contents/Developer';
+
+  if (!fs.existsSync(xcodeDeveloperDir)) {
+    return;
+  }
+
+  try {
+    const selected = execSync('xcode-select -p', { encoding: 'utf8' }).trim();
+    if (selected.includes('CommandLineTools')) {
+      process.env.DEVELOPER_DIR = xcodeDeveloperDir;
+    }
+  } catch (error) {
+    process.env.DEVELOPER_DIR = xcodeDeveloperDir;
+  }
+};
+const iosSimulatorStartupTimeout = normalizePositiveInt(
+  process.env.IOS_SIMULATOR_STARTUP_TIMEOUT,
+  isCI ? 300000 : 120000,
+);
+const iosWdaLaunchTimeout = normalizePositiveInt(process.env.IOS_WDA_LAUNCH_TIMEOUT, isCI ? 240000 : 120000);
+const iosWdaConnectionTimeout = normalizePositiveInt(
+  process.env.IOS_WDA_CONNECTION_TIMEOUT,
+  isCI ? 240000 : 120000,
+);
+const connectionRetryTimeout = normalizePositiveInt(
+  process.env.WDIO_CONNECTION_RETRY_TIMEOUT,
+  isCI && !isAndroid ? 300000 : 120000,
+);
+ensureXcodeDeveloperDir();
+const resolveIosSimulatorDefaults = () => {
+  if (isAndroid || runOnBrowserStack || process.platform !== 'darwin') {
+    return null;
+  }
+
+  if (process.env.DEVICE_NAME || process.env.PLATFORM_VERSION || process.env.UDID) {
+    return null;
+  }
+
+  const runtimesRaw = execSync('xcrun simctl list runtimes -j', { encoding: 'utf8' });
+  const bootedRaw = execSync('xcrun simctl list devices booted -j', { encoding: 'utf8' });
+  const runtimes = JSON.parse(runtimesRaw).runtimes || [];
+  const booted = JSON.parse(bootedRaw).devices || {};
+
+  const runtimeVersions = new Map();
+  runtimes.forEach((runtime) => {
+    if (!runtime || !runtime.isAvailable || typeof runtime.name !== 'string') {
+      return;
+    }
+    const match = /iOS ([0-9.]+)/.exec(runtime.name);
+    if (match && runtime.identifier) {
+      runtimeVersions.set(runtime.identifier, match[1]);
+    }
+  });
+
+  const candidates = [];
+  Object.entries(booted).forEach(([runtimeId, devices]) => {
+    if (!runtimeVersions.has(runtimeId)) {
+      return;
+    }
+    (devices || []).forEach((device) => {
+      if (!device?.udid || !device.name) {
+        return;
+      }
+      candidates.push({ device, runtimeId });
+    });
+  });
+
+  if (!candidates.length) {
+    throw new Error('No booted iOS simulator found. Open Simulator or set DEVICE_NAME/PLATFORM_VERSION/UDID.');
+  }
+
+  const pick =
+    candidates.find((entry) => entry.device.name.startsWith('iPhone')) || candidates[0];
+  const platformVersion = runtimeVersions.get(pick.runtimeId);
+
+  if (!platformVersion) {
+    throw new Error('Unable to resolve iOS platform version for the booted simulator.');
+  }
+
+  return {
+    deviceName: pick.device.name,
+    platformVersion,
+    udid: pick.device.udid,
+  };
+};
+const iosSimDefaults = resolveIosSimulatorDefaults();
 const findLocalApp = () => {
   const appsDir = join(process.cwd(), 'apps');
 
@@ -342,12 +475,50 @@ const findLocalApp = () => {
     return null;
   }
 
-  const candidates = fs
-    .readdirSync(appsDir)
-    .filter((file) => file.endsWith('.apk') || file.endsWith('.ipa'))
-    .map((file) => join(appsDir, file));
+  const apkCandidates = [];
+  const ipaCandidates = [];
+  const appBundleCandidates = [];
+  const stack = [appsDir];
 
-  return candidates[0] || null;
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      const lower = entry.name.toLowerCase();
+
+      if (entry.isDirectory()) {
+        if (lower.endsWith('.app')) {
+          appBundleCandidates.push(fullPath);
+          continue;
+        }
+        stack.push(fullPath);
+        continue;
+      }
+
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      if (lower.endsWith('.apk')) {
+        apkCandidates.push(fullPath);
+      } else if (lower.endsWith('.ipa')) {
+        ipaCandidates.push(fullPath);
+      }
+    }
+  }
+
+  const sortPaths = (list) => list.sort((a, b) => a.localeCompare(b));
+  sortPaths(apkCandidates);
+  sortPaths(appBundleCandidates);
+  sortPaths(ipaCandidates);
+
+  if (isAndroid) {
+    return apkCandidates[0] || null;
+  }
+
+  return appBundleCandidates[0] || ipaCandidates[0] || null;
 };
 const appId = (() => {
   if (runOnBrowserStack) {
@@ -358,7 +529,7 @@ const appId = (() => {
 
   if (!localApp) {
     throw new Error(
-      'APP is required for local runs (path to .apk/.ipa). Example: APP=./apps/tu.apk npm run test:ci:login',
+      'APP is required for local runs (path to .apk/.app/.ipa). Example: APP=./apps/tu.apk npm run test:ci:login',
     );
   }
 
@@ -486,12 +657,18 @@ if (runOnBrowserStack) {
     },
   ]);
 } else {
-  services.push([
-    'appium',
-    {
-      args: { basePath: '/wd/hub' },
+  const appiumServiceOptions = {
+    args: {
+      basePath: '/wd/hub',
+      logLevel: appiumLogLevel,
     },
-  ]);
+  };
+
+  if (appiumLogPath) {
+    appiumServiceOptions.logPath = appiumLogPath;
+  }
+
+  services.push(['appium', appiumServiceOptions]);
 }
 
 if (enableVisualComparison) {
@@ -518,10 +695,21 @@ const baseCaps = {
 
 const localCaps = {
   ...baseCaps,
-  'appium:deviceName': process.env.DEVICE_NAME || (isAndroid ? 'Android Emulator' : 'iPhone Simulator'),
-  'appium:platformVersion': process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
-  'appium:udid': process.env.UDID || (isAndroid ? 'emulator-5554' : 'auto'),
+  'appium:deviceName':
+    process.env.DEVICE_NAME || (isAndroid ? 'Android Emulator' : iosSimDefaults?.deviceName || 'iPhone Simulator'),
+  'appium:platformVersion':
+    process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : iosSimDefaults?.platformVersion || '17.0'),
+  'appium:udid': process.env.UDID || (isAndroid ? 'emulator-5554' : iosSimDefaults?.udid || 'auto'),
 };
+const localCapsWithIosTuning = isAndroid
+  ? localCaps
+  : {
+      ...localCaps,
+      'appium:simulatorStartupTimeout': iosSimulatorStartupTimeout,
+      'appium:wdaLaunchTimeout': iosWdaLaunchTimeout,
+      'appium:wdaConnectionTimeout': iosWdaConnectionTimeout,
+      ...(showXcodeLog ? { 'appium:showXcodeLog': true } : {}),
+    };
 
 const bsCaps = {
   ...baseCaps,
@@ -542,7 +730,10 @@ const config = {
   runner: 'local',
   specs,
   maxInstances: 1,
-  logLevel: 'info',
+  logLevel: wdioLogLevel,
+  logLevels: {
+    webdriver: webdriverLogLevel,
+  },
   ...(runOnBrowserStack
     ? { user: browserStackUser, key: browserStackKey, hostname: 'hub.browserstack.com', port: 443, path: '/wd/hub' }
     : {
@@ -581,8 +772,9 @@ const config = {
   },
   services,
   baseUrl: 'http://localhost',
-  capabilities: [runOnBrowserStack ? bsCaps : localCaps],
+  capabilities: [runOnBrowserStack ? bsCaps : localCapsWithIosTuning],
   waitforTimeout: 20000,
+  connectionRetryTimeout,
   connectionRetryCount: 2,
 
   before: async () => {
@@ -599,7 +791,8 @@ const config = {
     const sanitizedTitle = test.title.replace(/[^a-z0-9-_]+/gi, '_');
 
     if (!passed) {
-      const fileName = `${Date.now()}-${sanitizedTitle}.png`;
+      const timestamp = Date.now();
+      const fileName = `${timestamp}-${sanitizedTitle}.png`;
       const visualErrorDir = join(reportDirs.visualOutput, 'errorShots');
       const mochawesomeShotsDir = reportDirs.mochawesomeScreenshots;
       const mochawesomeShotPath = join(mochawesomeShotsDir, fileName);
@@ -613,6 +806,14 @@ const config = {
       });
       await browser.saveScreenshot(mochawesomeShotPath);
       fs.copyFileSync(mochawesomeShotPath, visualShotPath);
+
+      try {
+        const source = await browser.getPageSource();
+        const sourceFileName = `${timestamp}-${sanitizedTitle}.xml`;
+        const sourcePath = join(reportDirs.pageSource, sourceFileName);
+        fs.writeFileSync(sourcePath, source);
+      } catch (sourceError) {
+      }
     } else {
       const fileName = `${Date.now()}-${sanitizedTitle}-final.png`;
       const mochawesomeShotsDir = reportDirs.mochawesomeScreenshots;

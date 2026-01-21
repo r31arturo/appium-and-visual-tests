@@ -2,6 +2,7 @@ const { expect } = require('@wdio/globals');
 const {
   iosPredicateName,
   androidResourceId,
+  androidResourceIdMatches,
   accessibilityId,
 } = require('../utils/selectors');
 
@@ -31,11 +32,15 @@ class LoginScreen {
   }
 
   get alertTitle() {
-    return $(driver.isAndroid ? 'id:android:id/alertTitle' : iosPredicateName('alertTitle'));
+    return $(driver.isAndroid
+      ? androidResourceIdMatches('.*:id/alert(_title|Title)')
+      : '-ios predicate string:type == "XCUIElementTypeAlert"');
   }
 
   get alertOkButton() {
-    return $(driver.isAndroid ? 'id:android:id/button1' : iosPredicateName('OK'));
+    return $(driver.isAndroid
+      ? 'id:android:id/button1'
+      : '-ios class chain:**/XCUIElementTypeAlert/**/XCUIElementTypeButton[`name == "OK"`]');
   }
 
   async waitForForm() {
@@ -64,7 +69,25 @@ class LoginScreen {
 
     await this.alertOkButton.click();
 
-    await expect(this.alertTitle).not.toBeDisplayed({ wait: 10000 });
+    const missingAlert = { value: false };
+
+    await browser.waitUntil(async () => {
+      const exists = await this.alertTitle.isExisting();
+      if (!exists) {
+        missingAlert.value = true;
+        return true;
+      }
+
+      return !(await this.alertTitle.isDisplayed());
+    }, {
+      timeout: 10000,
+      interval: 500,
+      timeoutMsg: 'Success alert is still visible after clicking OK.',
+    });
+
+    if (missingAlert.value) {
+      throw new Error('Success alert disappeared before dismissal could be verified.');
+    }
   }
 }
 

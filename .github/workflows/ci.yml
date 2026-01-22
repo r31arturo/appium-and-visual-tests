@@ -102,12 +102,12 @@ jobs:
         env:
           APP: ${{ github.workspace }}/apps/native-demo-app.apk
         with:
-          api-level: 34
+          api-level: 36
           target: google_apis
           arch: x86_64
-          profile: pixel_6
+          profile: pixel_8
           disable-animations: true
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot-save
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot-save -no-snapshot-load
           script: |
             adb kill-server || true
             adb start-server || true

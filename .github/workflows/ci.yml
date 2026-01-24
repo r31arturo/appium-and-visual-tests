@@ -97,6 +97,38 @@ jobs:
       - name: Verify KVM access
         run: |
           ls -l /dev/kvm || true
+      - name: Resolve Android device profile
+        shell: bash
+        run: |
+          ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          AVDMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager"
+          if [ ! -x "$AVDMANAGER" ]; then
+            AVDMANAGER="$ANDROID_HOME/cmdline-tools/bin/avdmanager"
+          fi
+          if [ ! -x "$AVDMANAGER" ]; then
+            echo "avdmanager not found at $AVDMANAGER" >&2
+            exit 1
+          fi
+          mapfile -t devices < <("$AVDMANAGER" list device | awk -F'"' '/id: [0-9]+ or/{print $2}')
+          preferred=(pixel_8_pro pixel_8 pixel_7_pro pixel_7 pixel_6_pro pixel_6 pixel_5 pixel_4 pixel)
+          pick=""
+          for candidate in "${preferred[@]}"; do
+            for device in "${devices[@]}"; do
+              if [ "$device" = "$candidate" ]; then
+                pick="$candidate"
+                break 2
+              fi
+            done
+          done
+          if [ -z "$pick" ] && [ ${#devices[@]} -gt 0 ]; then
+            pick="${devices[0]}"
+          fi
+          if [ -z "$pick" ]; then
+            echo "No Android device profiles found via avdmanager." >&2
+            exit 1
+          fi
+          echo "ANDROID_DEVICE_PROFILE=$pick" >> "$GITHUB_ENV"
+          echo "Using Android device profile: $pick"
       - name: Run emulator tests
         uses: reactivecircus/android-emulator-runner@v2
         env:
@@ -105,7 +137,7 @@ jobs:
           api-level: 36
           target: google_apis
           arch: x86_64
-          profile: pixel_8
+          profile: ${{ env.ANDROID_DEVICE_PROFILE }}
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot-save -no-snapshot-load
           script: |

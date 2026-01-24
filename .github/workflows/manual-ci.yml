@@ -147,9 +147,13 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot-save -no-snapshot-load
           script: |
+            adb kill-server || true
+            adb start-server || true
             adb devices
             adb wait-for-device
-            adb shell getprop sys.boot_completed
+            BOOT="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"; while [ "$BOOT" != "1" ]; do echo "sys.boot_completed=$BOOT"; sleep 5; BOOT="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"; done; echo "sys.boot_completed=$BOOT"
+            adb shell wm dismiss-keyguard || true
+            adb shell input keyevent 82 || true
             if [ -n "${{ inputs.spec }}" ]; then npx wdio run ./wdio.conf.js --spec "${{ inputs.spec }}"; else npx wdio run ./wdio.conf.js; fi
       - name: Collect evidence paths
         if: always()

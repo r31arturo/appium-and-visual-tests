@@ -83,6 +83,10 @@ const reportScreenshotSettings = {
   scale: reportScreenshotScale,
   quality: reportScreenshotQuality,
 };
+const reportScreenshotDisplayWidth = normalizePositiveInt(
+  process.env.REPORT_SCREENSHOT_DISPLAY_WIDTH,
+  null,
+);
 const shouldCompressReportScreenshots = reportScreenshotSettings.scale < 1 && Boolean(sharp);
 if (reportScreenshotSettings.scale < 1 && !sharp) {
   const errorMessage = sharpLoadError && sharpLoadError.message ? ` (${sharpLoadError.message})` : '';
@@ -366,6 +370,34 @@ const compressMochawesomeScreenshotFiles = async (dir, settings) => {
       console.warn(`[Mochawesome] Failed to compress ${filePath}: ${error.message}`);
     }
   }
+};
+
+const injectReportScreenshotCss = (reportPath, displayWidth) => {
+  if (!displayWidth || !fs.existsSync(reportPath)) {
+    return;
+  }
+
+  const html = fs.readFileSync(reportPath, 'utf8');
+
+  if (html.includes('data-wdio-report-screenshot-size')) {
+    return;
+  }
+
+  const marker = '</head>';
+
+  if (!html.includes(marker)) {
+    console.warn('[Mochawesome] Unable to inject screenshot sizing; </head> not found.');
+    return;
+  }
+
+  const styleTag = [
+    '<style data-wdio-report-screenshot-size>',
+    `#report img[src^="data:image"]{width:${displayWidth}px;max-width:100%;height:auto;}`,
+    '</style>',
+  ].join('');
+
+  const updated = html.replace(marker, `${styleTag}${marker}`);
+  fs.writeFileSync(reportPath, updated);
 };
 
 const browserStackUser = process.env.BROWSERSTACK_USERNAME || process.env.BROWSERSTACK_USER;
@@ -870,10 +902,12 @@ const config = {
 
     const reportTitle = `Mochawesome - ${runModeLabel}`;
     const reportPageTitle = `Tests (${runModeLabel})`;
+    const reportPath = join(reportDir, `${reportFileName}.html`);
     execSync(
       `npx marge --inline ${mergedFile} -o ${reportDir} -f ${reportFileName} -t "${reportTitle}" -p "${reportPageTitle}"`,
       { stdio: 'inherit' },
     );
+    injectReportScreenshotCss(reportPath, reportScreenshotDisplayWidth);
   },
 
 };

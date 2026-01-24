@@ -21,7 +21,7 @@ Las opciones principales viven en `wdio.conf.js` y se pueden sobreescribir con v
 - `APP`: identificador de la app en BrowserStack (`bs://...`) o ruta al binario local (`.apk` Android, `.app` iOS Simulator, `.ipa` iOS real).
 - `PLATFORM_NAME`: `Android` o `iOS` (por defecto `Android`).
 - `DEVICE_NAME` / `PLATFORM_VERSION`: para usar un dispositivo/OS específico.
-- `BROWSERSTACK_PROJECT_NAME` / `BROWSERSTACK_BUILD_NAME`: nombre del proyecto/build en BrowserStack (por defecto `mobile-functional-visual`).
+- `BROWSERSTACK_PROJECT_NAME` / `BROWSERSTACK_BUILD_NAME`: nombre del proyecto/build en BrowserStack (por defecto `appium-and-visual-tests`).
 - `TEST_USERNAME` / `TEST_PASSWORD`: credenciales dummy para el flujo de login (por defecto `demo@example.com` / `password`).
 - `REPORT_SCREENSHOT_DOWNSCALE`: grado de downgrade para las imágenes embebidas en el reporte Mochawesome (acepta `0-1` o `0-100`; por defecto `0.3`, `1` desactiva el downgrade). No afecta las capturas de comparación visual.
 - `REPORT_SCREENSHOT_DISPLAY_WIDTH`: ancho fijo (px) para mostrar capturas en el HTML de Mochawesome y estandarizar tamanos entre Android/iOS.
@@ -61,7 +61,7 @@ export APP="bs://<id-de-tu-app>"
 npm test
 ```
 ### Workflow manual (GitHub Actions)
-Ejecuta el workflow **Manual CI (BrowserStack)** y define el `APP` (y opcionalmente el spec). Requiere secrets `BROWSERSTACK_USER`/`BROWSERSTACK_KEY`. Para cambiar el nombre del build/suite en CI, define `BROWSERSTACK_PROJECT_NAME` y `BROWSERSTACK_BUILD_NAME` como variables del repo.
+Ejecuta el workflow **Manual CI (BrowserStack Only)** y define el input `app` (BrowserStack App ID, `bs://...`), elige `platform_name` (Android/iOS) y un `spec` opcional. Requiere secrets `BROWSERSTACK_USER`/`BROWSERSTACK_KEY`. Para cambiar el nombre del build/suite en CI, define `BROWSERSTACK_PROJECT_NAME` y `BROWSERSTACK_BUILD_NAME` como variables del repo (si no, usan `appium-and-visual-tests`).
 
 > Nota: si alguna credencial estuvo expuesta públicamente, rótala de inmediato en BrowserStack y actualiza los secrets.
 

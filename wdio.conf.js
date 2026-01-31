@@ -1286,6 +1286,10 @@ if (runOnBrowserStack) {
     },
   };
 
+  if (isCI) {
+    appiumServiceOptions.command = join(process.cwd(), 'scripts', 'appium-wrapper.sh');
+  }
+
   if (appiumLogPath) {
     appiumServiceOptions.logPath = appiumLogPath;
   }

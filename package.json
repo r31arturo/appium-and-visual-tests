@@ -7,7 +7,8 @@
     "test": "wdio run ./wdio.conf.js",
     "test:android": "PLATFORM_NAME=Android wdio run ./wdio.conf.js",
     "test:ios": "PLATFORM_NAME=iOS wdio run ./wdio.conf.js",
-    "visual": "VISUAL_COMPARE=true wdio run ./wdio.conf.js",
+    "visual:android": "VISUAL_COMPARE=true PLATFORM_NAME=Android wdio run ./wdio.conf.js",
+    "visual:ios": "VISUAL_COMPARE=true PLATFORM_NAME=iOS wdio run ./wdio.conf.js",
     "test:ci": "wdio run ./wdio.conf.js",
     "test:ci:login": "wdio run ./wdio.conf.js --spec ./tests/specs/login.spec.js"
   },

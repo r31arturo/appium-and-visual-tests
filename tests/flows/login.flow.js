@@ -1,5 +1,6 @@
 const LandingScreen = require('../screens/landing.screen');
 const LoginScreen = require('../screens/login.screen');
+const { checkScreenWithBaseline } = require('../utils/visual-baseline');
 
 const logStep = (message) => {
   console.log(`[login] ${message}`);
@@ -8,14 +9,7 @@ const logStep = (message) => {
 const captureLanding = async (tag = 'landing') => {
   logStep(`capture landing screen: ${tag}`);
   await LandingScreen.ensureOnLanding();
-  if (typeof browser.saveScreen === 'function' && typeof browser.checkScreen === 'function') {
-    await browser.saveScreen(tag);
-    const diff = await browser.checkScreen(tag, { hideElements: [] });
-    return diff;
-  }
-
-  // Visual service disabled; return 0 so functional runs don't fail
-  return 0;
+  return checkScreenWithBaseline(tag, { hideElements: [] });
 };
 
 const loginAndDismissAlert = async (username, password) => {

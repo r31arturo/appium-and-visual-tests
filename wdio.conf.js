@@ -9,6 +9,40 @@ let sharpLoadError = null;
 let pixelmatch = null;
 let pixelmatchLoadError = null;
 
+const stripTsxNodeOptions = (value) => {
+  if (!value) {
+    return value;
+  }
+
+  const tokens = value.split(/\s+/).filter(Boolean);
+  const result = [];
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    const isLoaderToken = token === '--import' || token === '--loader';
+    if (isLoaderToken) {
+      const nextToken = tokens[index + 1];
+      if (nextToken && nextToken.includes('tsx')) {
+        index += 1;
+        continue;
+      }
+    }
+
+    if ((token.startsWith('--import=') || token.startsWith('--loader=')) && token.includes('tsx')) {
+      continue;
+    }
+
+    result.push(token);
+  }
+
+  return result.join(' ');
+};
+
+// WDIO injects tsx into NODE_OPTIONS even for JS configs; strip it so Appium can boot cleanly in CI.
+if ((process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true') && process.env.NODE_OPTIONS) {
+  process.env.NODE_OPTIONS = stripTsxNodeOptions(process.env.NODE_OPTIONS);
+}
+
 try {
   sharp = require('sharp');
 } catch (error) {

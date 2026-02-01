@@ -1,0 +1,406 @@
+name: "Manual CI (Emulator - Visual/Functional)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      spec:
+        description: "Spec file to run"
+        type: string
+        default: ""
+      test_mode:
+        description: "Run functional or visual tests"
+        type: choice
+        options:
+          - visual
+          - functional
+        default: visual
+      platform:
+        description: "Platform to run"
+        type: choice
+        options:
+          - both
+          - android
+          - ios
+        default: both
+
+concurrency:
+  group: manual-visual-ci-emulator-${{ github.ref }}-${{ inputs.test_mode }}
+  cancel-in-progress: true
+
+jobs:
+  android_emulator:
+    name: Android emulator ${{ inputs.test_mode }} tests
+    if: ${{ inputs.platform != 'ios' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    timeout-minutes: 45
+    env:
+      NATIVE_DEMO_APP_TAG: v1.0.8
+      VISUAL_COMPARE: ${{ inputs.test_mode == 'visual' && 'true' || 'false' }}
+      PLATFORM_NAME: Android
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install dependencies
+        run: npm ci
+      - name: Ensure sharp optional deps (linux)
+        run: |
+          npm install --include=optional --no-save --no-package-lock --no-audit --no-fund --os=linux --cpu=x64 sharp
+      - name: Download native demo app
+        shell: bash
+        run: |
+          mkdir -p apps
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          tag = os.environ.get("NATIVE_DEMO_APP_TAG", "v1.0.8")
+          print(f"Native Demo App tag: {tag}")
+          api_url = f"https://api.github.com/repos/webdriverio/native-demo-app/releases/tags/{tag}"
+          headers = {"Accept": "application/vnd.github+json"}
+          token = os.environ.get("GITHUB_TOKEN")
+          if token:
+            headers["Authorization"] = f"Bearer {token}"
+          request = urllib.request.Request(api_url, headers=headers)
+          with urllib.request.urlopen(request) as response:
+            payload = json.load(response)
+
+          assets = payload.get("assets", [])
+          apk_url = None
+          apk_name = None
+          for asset in assets:
+            name = asset.get("name", "").lower()
+            if name.endswith(".apk"):
+              apk_url = asset.get("browser_download_url")
+              apk_name = asset.get("name")
+              break
+
+          if not apk_url:
+            raise SystemExit("No APK asset found in latest release.")
+
+          output_path = os.path.join("apps", "native-demo-app.apk")
+          urllib.request.urlretrieve(apk_url, output_path)
+          print(f"Native Demo App asset: {apk_name}")
+          print(f"Downloaded APK to {output_path}")
+          PY
+      - name: Install Appium driver
+        shell: bash
+        run: |
+          if npx --no-install appium driver list --installed 2>&1 | grep -q "uiautomator2"; then
+            echo "uiautomator2 already installed"
+          else
+            npx appium driver install uiautomator2
+          fi
+      - name: Enable KVM group perms
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify KVM access
+        run: |
+          ls -l /dev/kvm || true
+      - name: Resolve Android device profile
+        shell: bash
+        run: |
+          ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          AVDMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager"
+          if [ ! -x "$AVDMANAGER" ]; then
+            AVDMANAGER="$ANDROID_HOME/cmdline-tools/bin/avdmanager"
+          fi
+          if [ ! -x "$AVDMANAGER" ]; then
+            echo "avdmanager not found at $AVDMANAGER" >&2
+            exit 1
+          fi
+          mapfile -t devices < <("$AVDMANAGER" list device | awk -F'"' '/id: [0-9]+ or/{print $2}')
+          preferred=(pixel_8_pro pixel_8 pixel_7_pro pixel_7 pixel_6_pro pixel_6 pixel_5 pixel_4 pixel)
+          pick=""
+          for candidate in "${preferred[@]}"; do
+            for device in "${devices[@]}"; do
+              if [ "$device" = "$candidate" ]; then
+                pick="$candidate"
+                break 2
+              fi
+            done
+          done
+          if [ -z "$pick" ] && [ ${#devices[@]} -gt 0 ]; then
+            pick="${devices[0]}"
+          fi
+          if [ -z "$pick" ]; then
+            echo "No Android device profiles found via avdmanager." >&2
+            exit 1
+          fi
+          echo "ANDROID_DEVICE_PROFILE=$pick" >> "$GITHUB_ENV"
+          echo "Using Android device profile: $pick"
+      - name: Run emulator visual tests
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          APP: ${{ github.workspace }}/apps/native-demo-app.apk
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: ${{ env.ANDROID_DEVICE_PROFILE }}
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot-save -no-snapshot-load
+          script: |
+            adb kill-server || true
+            adb start-server || true
+            adb devices
+            adb wait-for-device
+            BOOT="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"; while [ "$BOOT" != "1" ]; do echo "sys.boot_completed=$BOOT"; sleep 5; BOOT="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"; done; echo "sys.boot_completed=$BOOT"
+            adb shell wm dismiss-keyguard || true
+            adb shell input keyevent 82 || true
+            if [ -n "${{ inputs.spec }}" ]; then npx wdio run ./wdio.conf.js --spec "${{ inputs.spec }}"; else npx wdio run ./wdio.conf.js; fi
+      - name: Collect evidence paths
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "paths<<EOF"
+            echo "report/mochawesome-*.html"
+            echo "report/mochawesome-screenshots/**"
+            echo "report/appium.log"
+            echo "report/page-source/**"
+            echo "report/junit/**/*.xml"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+        id: evidence_paths
+      - name: Upload test evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-evidence-${{ github.workflow }}-${{ github.job }}-${{ github.run_id }}
+          if-no-files-found: warn
+          path: ${{ steps.evidence_paths.outputs.paths }}
+      - name: Check JUnit report
+        if: always()
+        id: junit_check
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(report/junit/**/*.xml)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          for file in "${files[@]}"; do
+            if grep -q "<testcase" "$file"; then
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "found=false" >> "$GITHUB_OUTPUT"
+      - name: Publish JUnit report
+        if: ${{ !cancelled() && steps.junit_check.outputs.found == 'true' }}
+        uses: dorny/test-reporter@v2
+        with:
+          name: WDIO JUnit (${{ github.workflow }})
+          path: report/junit/**/*.xml
+          reporter: java-junit
+          fail-on-empty: "false"
+          fail-on-error: "true"
+
+  ios_simulator:
+    name: iOS simulator ${{ inputs.test_mode }} tests
+    if: ${{ inputs.platform != 'android' }}
+    runs-on: macos-latest
+    permissions:
+      contents: read
+      checks: write
+    timeout-minutes: 60
+    env:
+      IOS_APP_URL: https://github.com/webdriverio/native-demo-app/releases/download/v2.0.0/ios.simulator.wdio.native.app.v2.0.0.zip
+      PLATFORM_NAME: iOS
+      VISUAL_COMPARE: ${{ inputs.test_mode == 'visual' && 'true' || 'false' }}
+      IOS_RUNTIME_MAJOR: "18"
+      APPIUM_LOG_LEVEL: debug
+      WDIO_LOG_LEVEL: debug
+      IOS_SHOW_XCODE_LOG: "true"
+      IOS_SIMULATOR_STARTUP_TIMEOUT: "600000"
+      IOS_WDA_LAUNCH_TIMEOUT: "600000"
+      IOS_WDA_CONNECTION_TIMEOUT: "600000"
+      WDIO_CONNECTION_RETRY_TIMEOUT: "600000"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Xcode version (diagnostic)
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes
+      - name: Download iOS demo app
+        shell: bash
+        run: |
+          mkdir -p apps/ios
+          curl -L "$IOS_APP_URL" -o apps/ios/native-demo-app.zip
+          unzip -q apps/ios/native-demo-app.zip -d apps/ios
+          APP_PATH="$(find apps/ios -maxdepth 3 -name '*.app' -print -quit)"
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app found after unzip" >&2
+            exit 1
+          fi
+          printf 'APP=%s\n' "$APP_PATH" >> "$GITHUB_ENV"
+          xattr -dr com.apple.quarantine "$APP_PATH" || true
+      - name: Install Appium driver
+        shell: bash
+        run: |
+          if npx --no-install appium driver list --installed 2>&1 | grep -q "xcuitest"; then
+            echo "xcuitest already installed"
+          else
+            npx appium driver install xcuitest
+          fi
+      - name: Resolve iOS simulator
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+
+          runtimes = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "runtimes", "-j"]))
+          devices = json.loads(
+              subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"])
+          )
+
+          ios_runtimes = [
+              r for r in runtimes.get("runtimes", []) if r.get("isAvailable") and r.get("name", "").startswith("iOS ")
+          ]
+          if not ios_runtimes:
+              sys.exit("No iOS runtimes available on runner")
+
+          desired_version = (os.environ.get("PLATFORM_VERSION") or "").strip()
+          desired_major_raw = (os.environ.get("IOS_RUNTIME_MAJOR") or "").strip()
+          desired_major = int(desired_major_raw) if desired_major_raw.isdigit() else None
+
+          def runtime_version(name):
+              match = re.search(r"iOS ([0-9.]+)", name)
+              return match.group(1) if match else None
+
+          def parse_version(name):
+              version = runtime_version(name)
+              if not version:
+                  return (0,)
+              return tuple(int(part) for part in version.split("."))
+
+          filtered = ios_runtimes
+          if desired_version:
+              filtered = [r for r in ios_runtimes if runtime_version(r.get("name", "")) and runtime_version(r.get("name", "")).startswith(desired_version)]
+          elif desired_major is not None:
+              filtered = [
+                  r
+                  for r in ios_runtimes
+                  if runtime_version(r.get("name", ""))
+                  and int(runtime_version(r.get("name", "")).split(".")[0]) == desired_major
+              ]
+
+          if filtered:
+              ios_runtimes = filtered
+
+          ios_runtimes.sort(key=lambda r: parse_version(r.get("name", "")), reverse=True)
+          runtime = ios_runtimes[0]
+          runtime_id = runtime.get("identifier")
+          match = re.search(r"iOS ([0-9.]+)", runtime.get("name", ""))
+          if not match or not runtime_id:
+              sys.exit(f"Unable to resolve iOS runtime from {runtime}")
+          platform_version = match.group(1)
+
+          runtime_devices = devices.get("devices", {}).get(runtime_id, [])
+          iphones = [
+              d
+              for d in runtime_devices
+              if d.get("isAvailable") and isinstance(d.get("name"), str) and d.get("name").startswith("iPhone")
+          ]
+          if not iphones:
+              sys.exit(f"No iPhone devices available for runtime {runtime_id}")
+
+          device = iphones[0]
+          device_name = device.get("name")
+          udid = device.get("udid")
+          if not device_name or not udid:
+              sys.exit(f"Unable to resolve device details from {device}")
+
+          print(f"Using runtime {runtime.get('name')} with device {device_name} ({udid})")
+          with open(os.environ["GITHUB_ENV"], "a") as env_file:
+              env_file.write(f"DEVICE_NAME={device_name}\n")
+              env_file.write(f"PLATFORM_VERSION={platform_version}\n")
+              env_file.write(f"UDID={udid}\n")
+          PY
+      - name: Boot iOS simulator
+        shell: bash
+        run: |
+          xcrun simctl boot "$UDID" || true
+          open -a Simulator --args -CurrentDeviceUDID "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+      - name: Run iOS simulator visual tests
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.spec }}" ]; then npx wdio run ./wdio.conf.js --spec "${{ inputs.spec }}"; else npx wdio run ./wdio.conf.js; fi
+      - name: Collect evidence paths
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "paths<<EOF"
+            echo "report/mochawesome-*.html"
+            echo "report/mochawesome-screenshots/**"
+            echo "report/appium.log"
+            echo "report/page-source/**"
+            echo "report/junit/**/*.xml"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+        id: evidence_paths
+      - name: Upload test evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-evidence-${{ github.workflow }}-${{ github.job }}-${{ github.run_id }}
+          if-no-files-found: warn
+          path: ${{ steps.evidence_paths.outputs.paths }}
+      - name: Check JUnit report
+        if: always()
+        id: junit_check
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(report/junit/**/*.xml)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          for file in "${files[@]}"; do
+            if grep -q "<testcase" "$file"; then
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "found=false" >> "$GITHUB_OUTPUT"
+      - name: Publish JUnit report
+        if: ${{ !cancelled() && steps.junit_check.outputs.found == 'true' }}
+        uses: dorny/test-reporter@v2
+        with:
+          name: WDIO JUnit (${{ github.workflow }})
+          path: report/junit/**/*.xml
+          reporter: java-junit
+          fail-on-empty: "false"
+          fail-on-error: "true"

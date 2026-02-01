@@ -10,6 +10,7 @@ describe('login tests', () => {
     const username = process.env.TEST_USERNAME || 'demo@example.com';
     const password = process.env.TEST_PASSWORD || 'password';
 
+    await captureLanding();
     await loginAndDismissAlert(username, password);
   });
 });

@@ -24,10 +24,9 @@ Las opciones principales viven en `wdio.conf.js` y se pueden sobreescribir con v
 - `BROWSERSTACK_PROJECT_NAME` / `BROWSERSTACK_BUILD_NAME`: nombre del proyecto/build en BrowserStack (por defecto `appium-and-visual-tests`).
 - `BROWSERSTACK_SESSION_NAME`: nombre de la sesión en BrowserStack (por defecto `run-<id>-<timestamp>`).
 - `TEST_USERNAME` / `TEST_PASSWORD`: credenciales dummy para el flujo de login (por defecto `demo@example.com` / `password`).
-- `VISUAL_COMPARE`: `true`/`false` para habilitar el servicio visual (`npm run visual` ya lo activa).
-- `VISUAL_BASELINE_PENDING_DIR`: ruta para guardar baselines tentativos cuando falta la baseline (por defecto `report/visual-baseline-pending`).
-- `VISUAL_MISMATCH_TOLERANCE`: tolerancia de mismatch visual (acepta `0-1` o `0-100`; por defecto `0.01` = `1%`). Usa `0` para pixel-perfect.
-- `REPORT_SCREENSHOT_DOWNSCALE`: grado de downgrade para las imágenes embebidas en el reporte Mochawesome (acepta `0-1` o `0-100`; por defecto `0.3`, `1` desactiva el downgrade). No modifica las capturas originales de comparación visual; solo genera copias reducidas para el reporte.
+- `VISUAL_COMPARE`: `true`/`false` para habilitar el servicio visual (`npm run visual:android` y `npm run visual:ios` ya lo activan).
+- `VISUAL_COLLECT_ALL_DIFFERENCES`: controla si una corrida visual acumula todas las diferencias antes de fallar. En modo visual queda activo por defecto; usa `VISUAL_COLLECT_ALL_DIFFERENCES=false` si quieres volver al fail-fast.
+- `REPORT_SCREENSHOT_DOWNSCALE`: grado de downgrade para las imágenes embebidas en el reporte Mochawesome (acepta `0-1` o `0-100`; por defecto `0.3`, `1` desactiva el downgrade). No afecta las capturas de comparación visual.
 - `REPORT_SCREENSHOT_DISPLAY_WIDTH`: ancho fijo (px) para mostrar capturas en el HTML de Mochawesome y estandarizar tamanos entre Android/iOS.
 - `WDIO_LOG_LEVEL`: nivel global de logs de WDIO (por defecto `info`).
 - `WDIO_WEBDRIVER_LOG_LEVEL`: nivel de logs del logger `webdriver` (por defecto `info`; usa `warn` si quieres menos ruido).
@@ -37,7 +36,7 @@ Las opciones principales viven en `wdio.conf.js` y se pueden sobreescribir con v
 - `WDIO_CONNECTION_RETRY_TIMEOUT`: timeout global de conexión (útil en iOS CI).
 
 ### Ajuste de downscale del reporte
-El ajuste se hace con la variable de entorno `REPORT_SCREENSHOT_DOWNSCALE` (no editando código). Está pensada solo para las imágenes que quedan en `report/` para Mochawesome y las copias de baseline/current/diff usadas en el reporte; no toca las capturas originales de comparación visual.
+El ajuste se hace con la variable de entorno `REPORT_SCREENSHOT_DOWNSCALE` (no editando código). Está pensada solo para las imágenes que quedan en `report/` para Mochawesome; no toca las capturas de comparación visual.
 Si `sharp` no está disponible, el downgrade se omite automáticamente.
 
 - Más pesado (mejor calidad, mayor tamaño): valores altos, cerca de `1` o `100`.
@@ -53,7 +52,7 @@ Ejemplo:
 REPORT_SCREENSHOT_DOWNSCALE=0.5 npm test
 ```
 
-Las capturas base se guardan en `report/visual-baseline/`, las diferencias en `report/visual-output/` y las baselines tentativas en `report/visual-baseline-pending/`. Las copias reducidas para el reporte quedan en `report/visual-report/` (baseline/current/diff). Si falta una baseline, la captura se guarda en la carpeta pendiente para moverla manualmente.
+Las capturas base se guardan en `report/visual-baseline/` y las diferencias en `report/visual-output/`. Si la imagen base no existe, se crea automáticamente en la primera ejecución, ese checkpoint queda marcado como `PENDING` y la prueba falla para evitar falsos positivos.
 
 ## Ejecutar pruebas
 ```bash
@@ -61,7 +60,8 @@ npm test
 ```
 
 ```bash
-npm run visual
+npm run visual:android
+npm run visual:ios
 ```
 
 ### Ejecutar en BrowserStack
@@ -80,7 +80,6 @@ Ejecuta el workflow **Manual CI (BrowserStack Only)** y define el input `app` (B
 ### CI en simuladores (GitHub Actions)
 - **CI (Emulator)** corre en cada PR contra `main` y ejecuta Android (Ubuntu) + iOS (macOS).
 - **Manual CI (Emulator)** permite disparar Android/iOS manualmente, pasar un `spec` opcional y elegir `platform` (`android`, `ios` o `both`).
-- **Manual CI (Emulator - Visual/Functional)** permite elegir `test_mode` (`visual` o `functional`) y `platform` (`android`, `ios` o `both`) con un `spec` opcional.
 - Android descarga el demo app de WebdriverIO (tag `v1.0.8`) antes de ejecutar.
 - El job de iOS descarga el binario de simulador desde:
   https://github.com/webdriverio/native-demo-app/releases/download/v2.0.0/ios.simulator.wdio.native.app.v2.0.0.zip
@@ -145,31 +144,25 @@ tests/
 - **Flows (`tests/flows/`)**: combinan pasos de varias pantallas en funciones reutilizables, por ejemplo `performBasicLogin()`.
 - **Specs (`tests/specs/`)**: describen los escenarios usando los flows y las aserciones de `expect-webdriverio`.
 - **Selectors utils (`tests/utils/selectors.js`)**: documentan el formato de plantillas iOS (`-ios predicate string:name == "<...>"`) y Android (`android=new UiSelector().resourceId("<...>")`) para mantener consistencia en los locators.
-- **Visual baselines**: base en `report/visual-baseline/`, pendientes en `report/visual-baseline-pending/`, diffs en `report/visual-output/` y copias reducidas del reporte en `report/visual-report/`.
+- **Visual baselines**: las capturas base viven en `report/visual-baseline/` y las diferencias se guardan en `report/visual-output/`.
 
 ## Cómo agregar tests al repo
 1. **Crear/actualizar la pantalla** en `tests/screens/` con getters y métodos cortos. Usa los helpers de `tests/utils/selectors.js` para mantener el formato de los locators de iOS/Android.
 2. **Crear un flow** en `tests/flows/` que combine los pasos necesarios (abrir la pantalla, completar formularios, validar waits, etc.). Mantén la lógica reutilizable aquí.
 3. **Escribir el spec** en `tests/specs/` (formato `*.spec.js`) importando el flow. Usa `describe/it` de Mocha y las expectativas de `expect` ya incluidas por WebdriverIO.
-4. **Agregar visuales (opcional)**: usa `checkScreenWithBaseline()` (helper en `tests/utils/visual-baseline.js`) o llama `browser.checkScreen()` directo. Ejecuta con `npm run visual` (o `VISUAL_COMPARE=true`) para comparar contra `report/visual-baseline/`; si falta baseline, se guarda en `report/visual-baseline-pending/` para moverla manualmente.
+4. **Agregar visuales (opcional)**: no necesitas meter checkpoints visuales manuales en el flow o el spec. Con `VISUAL_COMPARE=true` la suite toma una captura antes de cada `click` y `setValue` del flujo y valida automáticamente ese paso contra su baseline en `report/visual-baseline/`. Puedes correrlo con `npm run visual:android` o `npm run visual:ios`.
 5. **Ejecutar solo tu spec**: `npm run test:ci -- --spec ./tests/specs/tu-test.spec.js` o en CI usando el input `spec`.
 
 ## Visual testing pixel-perfect
-Se usa `@wdio/visual-service` para validar la UI. El flujo de login incluye ejemplos de captura y comparación (`captureLanding()` en `tests/flows/login.flow.js`).
-- `checkScreenWithBaseline()` compara contra la baseline; si falta, guarda la captura en `report/visual-baseline-pending/` y devuelve `0`.
-- `browser.checkScreen()` o `browser.checkElement()` devuelven `0` cuando no hay diferencias visuales (si ya existe baseline).
-- La tolerancia por defecto es `1%` (`VISUAL_MISMATCH_TOLERANCE=0.01` o `1`). Si el mismatch supera esa tolerancia, el test falla. Usa `VISUAL_MISMATCH_TOLERANCE=0` para comparaciones estrictas.
-- Los mismatches visuales se acumulan durante el test y se reportan todos al final (el flujo no se corta en el primer diff). Los diffs quedan linkeados en el reporte Mochawesome cuando existen.
-- En modo visual (`VISUAL_COMPARE=true`), el test continúa aunque falten baselines; al final falla si faltó alguna o si no ejecutó comparaciones. Las capturas faltantes quedan en `report/visual-baseline-pending/`. Si hay mismatch, la captura actual también se copia a `report/visual-baseline-pending/` para facilitar actualizar la baseline.
-- En modo visual, cada paso de acción (`click`, `setValue`, `addValue`, `clearValue`) genera un checkpoint automático con nombre estable por test y número de paso.
-- En modo visual, cada test también genera un checkpoint final (`<test>__final`) para comparar el estado al terminar.
-- Los diffs del reporte se resaltan automáticamente con un marco rojo alrededor del área con cambios. Si el diff es muy pequeño, el marco se dibuja al lado para no tapar la diferencia.
-
-Ejemplo de tolerancia visual:
-```bash
-VISUAL_MISMATCH_TOLERANCE=0.01 npm run visual
-```
-> Nota: el servicio visual solo se activa si `VISUAL_COMPARE=true` (o con `npm run visual`).
+Se usa `@wdio/visual-service` para validar la UI.
+- Con `VISUAL_COMPARE=true`, cada acción instrumentada del flujo (`click` y `setValue`) ejecuta un `browser.checkScreen()` automático antes del paso.
+- Al final del test también se ejecuta una comparación visual adicional sobre la pantalla final.
+- En modo visual, la corrida acumula por defecto todas las diferencias de la prueba antes de fallar, para que el reporte muestre todos los pasos afectados en una sola ejecución.
+- Si la baseline no existe, se crea automáticamente en la primera ejecución, el checkpoint queda `PENDING` y el test falla con un error explícito de baseline faltante.
+- Después de esa primera ejecución, debes volver a correr la prueba para que la comparación visual ocurra realmente contra la baseline recién creada.
+- Si el diff es distinto de `0`, el test falla en ese paso con error de diferencia visual.
+- Los tags de baseline se generan automáticamente por test y número de paso para que el flujo funcional y el flujo visual sean el mismo.
+> Nota: el servicio visual solo se activa si `VISUAL_COMPARE=true` (o con `npm run visual:android` / `npm run visual:ios`).
 
 ## Reporte
 El reporter `spec` de WebdriverIO mantiene la salida limpia y legible. Además se genera:

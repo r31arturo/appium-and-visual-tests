@@ -1,47 +1,88 @@
 const fs = require('node:fs');
-const { join, sep, relative, extname, dirname, basename, isAbsolute } = require('node:path');
+const { join, sep } = require('node:path');
+const { pathToFileURL } = require('node:url');
 const { execSync } = require('node:child_process');
 const mergeResults = require('wdio-mochawesome-reporter/mergeResults');
-const { handleBaselineMissing, isBaselineMissingError } = require('./tests/utils/visual-baseline');
-const { applyDiffHighlight, computeDiffBoundingBox } = require('./tests/utils/visual-diff');
 let sharp = null;
 let sharpLoadError = null;
-let pixelmatch = null;
-let pixelmatchLoadError = null;
+const visualFailureMessagesByTest = new Map();
 
-const stripTsxNodeOptions = (value) => {
-  if (!value) {
-    return value;
+try {
+  const WdioMochawesomeReporter = require('wdio-mochawesome-reporter').default;
+
+  if (WdioMochawesomeReporter?.prototype?.onAfterCommand) {
+    WdioMochawesomeReporter.prototype.onAfterCommand = function patchedOnAfterCommand() {};
   }
-
-  const tokens = value.split(/\s+/).filter(Boolean);
-  const result = [];
-
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    const isLoaderToken = token === '--import' || token === '--loader';
-    if (isLoaderToken) {
-      const nextToken = tokens[index + 1];
-      if (nextToken && nextToken.includes('tsx')) {
-        index += 1;
-        continue;
-      }
-    }
-
-    if ((token.startsWith('--import=') || token.startsWith('--loader=')) && token.includes('tsx')) {
-      continue;
-    }
-
-    result.push(token);
-  }
-
-  return result.join(' ');
-};
-
-// WDIO injects tsx into NODE_OPTIONS even for JS configs; strip it so Appium can boot cleanly in CI.
-if ((process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true') && process.env.NODE_OPTIONS) {
-  process.env.NODE_OPTIONS = stripTsxNodeOptions(process.env.NODE_OPTIONS);
+} catch (error) {
 }
+
+import(pathToFileURL(join(process.cwd(), 'node_modules/@wdio/spec-reporter/build/index.js')).href)
+  .then((module) => {
+    const SpecReporter = module?.default;
+
+    if (!SpecReporter?.prototype?.onRunnerEnd) {
+      return;
+    }
+
+    const originalOnRunnerEnd = SpecReporter.prototype.onRunnerEnd;
+
+    SpecReporter.prototype.onRunnerEnd = function patchedOnRunnerEnd(runner) {
+      let promotedFailures = 0;
+      const suites = typeof this.getOrderedSuites === 'function' ? this.getOrderedSuites() : [];
+
+      for (const suite of suites) {
+        const tests = Array.isArray(suite?.tests) ? suite.tests : [];
+
+        for (const test of tests) {
+          const visualFailureMessage =
+            visualFailureMessagesByTest.get(test?.fullTitle) || visualFailureMessagesByTest.get(test?.title);
+
+          if (!visualFailureMessage || test?.state !== 'passed') {
+            continue;
+          }
+
+          promotedFailures += 1;
+          test.state = 'failed';
+          test.errors = [
+            {
+              message: visualFailureMessage,
+            },
+          ];
+          test.error = test.errors[0];
+        }
+      }
+
+      if (promotedFailures > 0) {
+        this._stateCounts.passed = Math.max(0, this._stateCounts.passed - promotedFailures);
+        this._stateCounts.failed += promotedFailures;
+      }
+
+      return originalOnRunnerEnd.call(this, runner);
+    };
+  })
+  .catch(() => {});
+
+import(pathToFileURL(join(process.cwd(), 'node_modules/@wdio/cli/build/index.js')).href)
+  .then((module) => {
+    const Launcher = module?.Launcher;
+
+    if (!Launcher?.prototype?._endHandler) {
+      return;
+    }
+
+    const originalEndHandler = Launcher.prototype._endHandler;
+
+    Launcher.prototype._endHandler = async function patchedEndHandler(payload) {
+      let nextPayload = payload;
+
+      if (payload?.exitCode === 0 && fs.existsSync(pendingVisualResultsFile)) {
+        nextPayload = { ...payload, exitCode: 1 };
+      }
+
+      return originalEndHandler.call(this, nextPayload);
+    };
+  })
+  .catch(() => {});
 
 try {
   sharp = require('sharp');
@@ -49,515 +90,19 @@ try {
   sharpLoadError = error;
 }
 
-try {
-  pixelmatch = require('pixelmatch');
-} catch (error) {
-  pixelmatchLoadError = error;
-}
-
 const reportDir = join(process.cwd(), 'report');
-const visualBaselinePendingDir =
-  process.env.VISUAL_BASELINE_PENDING_DIR || join(reportDir, 'visual-baseline-pending');
 const reportDirs = {
   visualBaseline: join(reportDir, 'visual-baseline'),
-  visualBaselinePending: visualBaselinePendingDir,
   visualOutput: join(reportDir, 'visual-output'),
-  visualReportBaseline: join(reportDir, 'visual-report', 'baseline'),
-  visualReportCurrent: join(reportDir, 'visual-report', 'current'),
-  visualReportDiff: join(reportDir, 'visual-report', 'diff'),
   junit: join(reportDir, 'junit'),
   pageSource: join(reportDir, 'page-source'),
   mochawesomeJson: join(reportDir, 'mochawesome-json'),
   mochawesomeScreenshots: join(reportDir, 'mochawesome-screenshots'),
 };
+const pendingVisualResultsFile = join(reportDir, 'visual-pending-tests.json');
 
 fs.mkdirSync(reportDir, { recursive: true });
 Object.values(reportDirs).forEach((dir) => fs.mkdirSync(dir, { recursive: true }));
-if (!process.env.VISUAL_BASELINE_PENDING_DIR) {
-  process.env.VISUAL_BASELINE_PENDING_DIR = reportDirs.visualBaselinePending;
-}
-
-const visualComparisonCounterKey = '__wdioVisualComparisons';
-const visualMissingBaselineKey = '__wdioVisualMissingBaselines';
-const visualMismatchKey = '__wdioVisualMismatches';
-const visualStepCounterKey = '__wdioVisualStepCounter';
-const visualTestLabelKey = '__wdioVisualTestLabel';
-let visualComparisonCounterInstalled = false;
-let visualTestWrapperInstalled = false;
-const resetVisualComparisonCounter = () => {
-  global[visualComparisonCounterKey] = 0;
-};
-const incrementVisualComparisonCounter = () => {
-  global[visualComparisonCounterKey] = (global[visualComparisonCounterKey] || 0) + 1;
-};
-const getVisualComparisonCounter = () => global[visualComparisonCounterKey] || 0;
-const resetVisualMissingBaselineCounter = () => {
-  global[visualMissingBaselineKey] = 0;
-};
-const getVisualMissingBaselineCounter = () => global[visualMissingBaselineKey] || 0;
-const resetVisualMismatchList = () => {
-  global[visualMismatchKey] = [];
-};
-const addVisualMismatch = (entry) => {
-  if (!global[visualMismatchKey]) {
-    global[visualMismatchKey] = [];
-  }
-  global[visualMismatchKey].push(entry);
-};
-const getVisualMismatchList = () => global[visualMismatchKey] || [];
-const sanitizeTag = (value, maxLength = 40) => {
-  if (!value) {
-    return '';
-  }
-
-  const safe = String(value)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '');
-
-  if (!safe) {
-    return '';
-  }
-
-  return safe.slice(0, maxLength);
-};
-const formatPercentLabel = (value) => {
-  if (!Number.isFinite(value)) {
-    return '0';
-  }
-
-  const rounded = Math.round(value * 100) / 100;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
-};
-const extractComparisonFolders = (result) => {
-  if (!result || typeof result !== 'object') {
-    return null;
-  }
-
-  if (result.folders && typeof result.folders === 'object') {
-    return result.folders;
-  }
-
-  const firstEntry = Object.values(result)[0];
-  if (firstEntry && typeof firstEntry === 'object' && firstEntry.folders) {
-    return firstEntry.folders;
-  }
-
-  return null;
-};
-const extractMismatchPercentage = (result) => {
-  const parseValue = (value) => {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return value;
-    }
-
-    if (typeof value === 'string') {
-      const parsed = Number.parseFloat(value);
-      if (Number.isFinite(parsed)) {
-        return parsed;
-      }
-    }
-
-    if (value && typeof value === 'object') {
-      const inner = value.misMatchPercentage;
-      if (typeof inner === 'number' && Number.isFinite(inner)) {
-        return inner;
-      }
-      if (typeof inner === 'string') {
-        const parsed = Number.parseFloat(inner);
-        if (Number.isFinite(parsed)) {
-          return parsed;
-        }
-      }
-    }
-
-    return null;
-  };
-
-  const direct = parseValue(result);
-  if (direct !== null) {
-    return direct;
-  }
-
-  if (result && typeof result === 'object') {
-    const firstEntry = Object.values(result)[0];
-    return parseValue(firstEntry);
-  }
-
-  return null;
-};
-const ensureReturnAllCompareData = (commandName, args) => {
-  const optionsIndex = commandName === 'checkElement' ? 2 : 1;
-  const rawOptions = args?.[optionsIndex];
-  const wantsAllData = Boolean(rawOptions && typeof rawOptions === 'object' && rawOptions.returnAllCompareData);
-
-  if (wantsAllData) {
-    return { callArgs: args, wantsAllData };
-  }
-
-  const nextArgs = [...args];
-  const nextOptions = rawOptions && typeof rawOptions === 'object' ? { ...rawOptions } : {};
-  nextOptions.returnAllCompareData = true;
-  nextArgs[optionsIndex] = nextOptions;
-
-  return { callArgs: nextArgs, wantsAllData };
-};
-const resolveVisualTagFromArgs = (commandName, args) => {
-  if (commandName === 'checkElement') {
-    return args?.[1];
-  }
-
-  return args?.[0];
-};
-const resetVisualStepCounter = () => {
-  global[visualStepCounterKey] = 0;
-};
-const nextVisualStepCounter = () => {
-  global[visualStepCounterKey] = (global[visualStepCounterKey] || 0) + 1;
-  return global[visualStepCounterKey];
-};
-const setVisualTestLabel = (test) => {
-  const parent = typeof test?.parent === 'string' ? test.parent : test?.parent?.title;
-  const title = test?.title || 'test';
-  const raw = parent ? `${parent} ${title}` : title;
-  global[visualTestLabelKey] = sanitizeTag(raw, 50);
-};
-const getVisualTestLabel = () => global[visualTestLabelKey] || 'test';
-const toReportRelativePath = (absolutePath) => {
-  if (!absolutePath) {
-    return null;
-  }
-
-  const relPath = relative(reportDir, absolutePath);
-  return relPath.split(sep).join('/');
-};
-const resolvePendingBaselinePath = (actualPath) => {
-  if (!actualPath) {
-    return null;
-  }
-
-  const pendingBase = reportDirs.visualBaselinePending;
-  const actualBase = browser?.visualService?.folders?.actualFolder;
-  const relativePath = actualBase ? relative(actualBase, actualPath) : basename(actualPath);
-  const safeRelative =
-    relativePath.startsWith('..') || isAbsolute(relativePath) ? basename(actualPath) : relativePath;
-  return join(pendingBase, safeRelative);
-};
-const copyCurrentToPendingBaseline = (actualPath, tag, mismatch) => {
-  if (!actualPath || !fs.existsSync(actualPath)) {
-    return null;
-  }
-
-  const pendingPath = resolvePendingBaselinePath(actualPath);
-  if (!pendingPath) {
-    return null;
-  }
-
-  try {
-    fs.mkdirSync(dirname(pendingPath), { recursive: true });
-    fs.copyFileSync(actualPath, pendingPath);
-    const label = tag || 'visual';
-    const mismatchLabel = Number.isFinite(mismatch) ? ` (${formatPercentLabel(mismatch)}%)` : '';
-    console.warn(`[Visual] Mismatch${mismatchLabel} for \"${label}\". Saved current to ${pendingPath}.`);
-    return pendingPath;
-  } catch (error) {
-    console.warn(`[Visual] Failed to save pending baseline for mismatch: ${error.message}`);
-    return null;
-  }
-};
-const addMochawesomeContext = (title, value) => {
-  if (value === undefined || value === null || value === '') {
-    return;
-  }
-
-  process.emit('wdio-mochawesome-reporter:addContext', { title, value });
-};
-const visualReportDirsByType = {
-  baseline: reportDirs.visualReportBaseline,
-  current: reportDirs.visualReportCurrent,
-  diff: reportDirs.visualReportDiff,
-};
-const buildVisualReportFileName = (label, tag, comparisonIndex, sourcePath) => {
-  const safeLabel = sanitizeTag(label, 16) || 'visual';
-  const safeTest = sanitizeTag(getVisualTestLabel(), 40);
-  const safeTag = sanitizeTag(tag, 40);
-  const counter = Number.isFinite(comparisonIndex)
-    ? `c${String(comparisonIndex).padStart(3, '0')}`
-    : null;
-  const extension = extname(sourcePath) || '.png';
-  const parts = [safeLabel, safeTest, safeTag, counter].filter(Boolean);
-  const baseName = parts.length ? parts.join('__') : 'visual';
-  return `${baseName}${extension}`;
-};
-const prepareVisualReportImage = async (sourcePath, type, tag, comparisonIndex, options = {}) => {
-  if (!sourcePath || !fs.existsSync(sourcePath)) {
-    return null;
-  }
-
-  const wantsDiffHighlight =
-    type === 'diff' &&
-    Boolean(options.baselinePath && options.actualPath && sharp && pixelmatch);
-  if (!shouldCompressReportScreenshots && !wantsDiffHighlight) {
-    return sourcePath;
-  }
-
-  const targetDir = visualReportDirsByType[type];
-  if (!targetDir) {
-    return sourcePath;
-  }
-
-  const fileName = buildVisualReportFileName(type, tag, comparisonIndex, sourcePath);
-  const targetPath = join(targetDir, fileName);
-
-  try {
-    fs.mkdirSync(targetDir, { recursive: true });
-    let inputBuffer = fs.readFileSync(sourcePath);
-    let didHighlight = false;
-
-    if (wantsDiffHighlight) {
-      const bbox = await computeDiffBoundingBox({
-        baselinePath: options.baselinePath,
-        actualPath: options.actualPath,
-        sharp,
-        pixelmatch,
-      });
-      if (bbox) {
-        inputBuffer = await applyDiffHighlight({ inputBuffer, bbox, sharp });
-        didHighlight = true;
-      }
-    }
-    const extension = extname(sourcePath).slice(1);
-    const output = await compressImageBuffer(inputBuffer, extension, reportScreenshotSettings);
-
-    if (output && output.buffer.length < inputBuffer.length) {
-      const tempPath = `${targetPath}.tmp`;
-      fs.writeFileSync(tempPath, output.buffer);
-      fs.renameSync(tempPath, targetPath);
-      return targetPath;
-    }
-
-    if (didHighlight) {
-      fs.writeFileSync(targetPath, inputBuffer);
-      return targetPath;
-    }
-
-    fs.copyFileSync(sourcePath, targetPath);
-    return targetPath;
-  } catch (error) {
-    console.warn(`[Visual] Failed to prepare ${type} image for report: ${error.message}`);
-    return sourcePath;
-  }
-};
-const attachVisualBaselineAndCurrent = async (commandName, args, result, comparisonIndex) => {
-  if (!enableVisualComparison || !isInTest) {
-    return;
-  }
-
-  const folders = extractComparisonFolders(result);
-  if (!folders) {
-    return;
-  }
-
-  const tag = resolveVisualTagFromArgs(commandName, args);
-  const suffix = tag ? ` (${tag})` : '';
-  const baselineReportPath = await prepareVisualReportImage(
-    folders.baseline,
-    'baseline',
-    tag,
-    comparisonIndex,
-  );
-  const actualReportPath = await prepareVisualReportImage(folders.actual, 'current', tag, comparisonIndex);
-  const baselinePath = toReportRelativePath(baselineReportPath || folders.baseline);
-  const actualPath = toReportRelativePath(actualReportPath || folders.actual);
-
-  if (baselinePath) {
-    addMochawesomeContext(`Visual baseline${suffix}`, baselinePath);
-  }
-  // Skip explicit "Visual current" to avoid duplicate entries; "Current Screenshot" already covers it.
-};
-const buildVisualIssues = () => {
-  const issues = [];
-  const missingBaselines = getVisualMissingBaselineCounter();
-  if (missingBaselines > 0) {
-    issues.push(
-      `[Visual] Missing ${missingBaselines} baseline(s). Move files from report/visual-baseline-pending into report/visual-baseline and re-run.`,
-    );
-  }
-
-  const mismatches = getVisualMismatchList();
-  if (mismatches.length > 0) {
-    const header = `[Visual] ${mismatches.length} mismatch(es) above ${formatPercentLabel(
-      visualMismatchTolerancePercent,
-    )}%:`;
-    const lines = mismatches
-      .map((entry, index) => {
-        const tagLabel = entry.tag || entry.commandName || `mismatch_${index + 1}`;
-        const diffLabel = entry.diffPathRelative || entry.diffPath;
-        const diffText = diffLabel ? ` (diff: ${diffLabel})` : '';
-        return `- ${tagLabel}: ${formatPercentLabel(entry.mismatch)}%${diffText}`;
-      })
-      .join('\n');
-    issues.push([header, lines].filter(Boolean).join('\n'));
-  }
-
-  if (getVisualComparisonCounter() === 0) {
-    issues.push(
-      '[Visual] No visual comparisons executed in this test. Use checkScreen/checkElement or the baseline helper.',
-    );
-  }
-
-  return issues;
-};
-const wrapTestWithVisualAssertions = (test) => {
-  if (!enableVisualComparison || !test || typeof test.fn !== 'function') {
-    return;
-  }
-
-  if (test.__wdioVisualWrapped) {
-    return;
-  }
-
-  test.__wdioVisualWrapped = true;
-  const original = test.fn;
-
-  const runVisualFinalCheck = async () => {
-    const priorIsInTest = isInTest;
-    isInTest = true;
-    try {
-      if (typeof browser?.checkScreen === 'function') {
-        const finalTag = buildFinalVisualTag();
-        await browser.checkScreen(finalTag, { hideElements: [] });
-      }
-
-      const issues = buildVisualIssues();
-      if (issues.length > 0) {
-        suiteHasFailures = true;
-        throw new Error(issues.join('\n'));
-      }
-    } finally {
-      isInTest = priorIsInTest;
-    }
-  };
-
-  test.fn = function (...args) {
-    const context = this;
-    const expectsDone = original.length > 0 && typeof args[0] === 'function';
-
-    if (expectsDone) {
-      const done = args[0];
-      const wrappedDone = (err) => {
-        if (err) {
-          done(err);
-          return;
-        }
-
-        Promise.resolve()
-          .then(runVisualFinalCheck)
-          .then(() => done())
-          .catch((error) => done(error));
-      };
-
-      return original.call(context, wrappedDone);
-    }
-
-    return Promise.resolve()
-      .then(() => original.apply(context, args))
-      .then(async (result) => {
-        await runVisualFinalCheck();
-        return result;
-      });
-  };
-
-  test.fn.toString = () => original.toString();
-};
-const installVisualTestWrapper = () => {
-  if (visualTestWrapperInstalled || typeof global.beforeEach !== 'function') {
-    return;
-  }
-
-  visualTestWrapperInstalled = true;
-  global.beforeEach(function () {
-    if (!enableVisualComparison) {
-      return;
-    }
-
-    wrapTestWithVisualAssertions(this?.currentTest);
-  });
-};
-const installVisualComparisonCounter = () => {
-  if (visualComparisonCounterInstalled) {
-    return;
-  }
-
-  const commandNames = ['checkScreen', 'checkElement', 'checkFullPageScreen', 'checkTabbablePage'];
-  const hasCommands = commandNames.some((commandName) => typeof browser?.[commandName] === 'function');
-  if (!hasCommands) {
-    return;
-  }
-
-  visualComparisonCounterInstalled = true;
-  const wrap = (commandName) => {
-    if (typeof browser?.[commandName] !== 'function') {
-      return;
-    }
-    const original = browser[commandName].bind(browser);
-    browser[commandName] = async (...args) => {
-      incrementVisualComparisonCounter();
-      try {
-        const { callArgs, wantsAllData } = ensureReturnAllCompareData(commandName, args);
-        const result = await original(...callArgs);
-        const comparisonIndex = getVisualComparisonCounter();
-        if (enableVisualComparison) {
-          await attachVisualBaselineAndCurrent(commandName, args, result, comparisonIndex);
-        }
-        const mismatch = enableVisualComparison ? extractMismatchPercentage(result) : null;
-        if (enableVisualComparison && mismatch !== null && mismatch > visualMismatchTolerancePercent) {
-            const tag = resolveVisualTagFromArgs(commandName, args);
-            const folders = extractComparisonFolders(result);
-            const diffPath = folders?.diff;
-            const diffReportPath = await prepareVisualReportImage(diffPath, 'diff', tag, comparisonIndex, {
-              baselinePath: folders?.baseline,
-              actualPath: folders?.actual,
-            });
-            const diffPathRelative = toReportRelativePath(diffReportPath || diffPath);
-            addVisualMismatch({
-              commandName,
-              tag,
-              mismatch,
-              diffPath,
-              diffPathRelative,
-            });
-
-            if (isInTest) {
-              addMochawesomeContext(
-                'Visual mismatch',
-                `${tag || commandName} (${formatPercentLabel(mismatch)}% > ${formatPercentLabel(
-                  visualMismatchTolerancePercent,
-                )}%)`,
-              );
-              if (diffPathRelative) {
-                addMochawesomeContext('Visual diff', diffPathRelative);
-              }
-            }
-
-            if (folders?.actual) {
-              copyCurrentToPendingBaseline(folders.actual, tag || commandName, mismatch);
-            }
-        }
-        return wantsAllData ? result : mismatch ?? result;
-      } catch (error) {
-        if (enableVisualComparison && isBaselineMissingError(error)) {
-          await handleBaselineMissing({ error, commandName, args });
-          return 0;
-        }
-        throw error;
-      }
-    };
-  };
-
-  commandNames.forEach(wrap);
-};
 
 const isCI = process.env.GITHUB_ACTIONS === 'true' || process.env.CI === 'true';
 const wdioLogLevel = process.env.WDIO_LOG_LEVEL || 'info';
@@ -570,6 +115,9 @@ const appiumLogPath = process.env.APPIUM_LOG_PATH || (isCI ? join(reportDir, 'ap
 const enableVisualComparison = ['1', 'true', 'yes', 'on'].includes(
   String(process.env.VISUAL_COMPARE || '').toLowerCase(),
 );
+const rawCollectAllVisualDifferences = String(process.env.VISUAL_COLLECT_ALL_DIFFERENCES || '').toLowerCase();
+const collectAllVisualDifferences =
+  enableVisualComparison && !['0', 'false', 'no', 'off'].includes(rawCollectAllVisualDifferences);
 const runModeLabel = enableVisualComparison ? 'Visual' : 'Functional';
 const reportFileName = enableVisualComparison ? 'mochawesome-visual' : 'mochawesome-functional';
 const normalizeReportScreenshotDowngrade = (value, fallback) => {
@@ -608,28 +156,11 @@ const normalizePositiveInt = (value, fallback) => {
 
   return parsed;
 };
-const normalizeVisualMismatchTolerance = (value, fallback) => {
-  const raw = typeof value === 'string' ? value.trim() : value;
-
-  if (raw === undefined || raw === null || raw === '') {
-    return fallback;
-  }
-
-  const parsed = Number.parseFloat(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return fallback;
-  }
-
-  const normalized = parsed > 1 ? parsed / 100 : parsed;
-  return Math.min(Math.max(normalized, 0), 1);
+const normalizeAppiumServiceLogLevel = (value) => {
+  const normalized = String(value || 'info').trim().toLowerCase();
+  return ['trace', 'debug', 'info'].includes(normalized) ? normalized : 'info';
 };
-// Adjust the default visual mismatch tolerance here (1% by default).
-const visualMismatchTolerance = normalizeVisualMismatchTolerance(
-  process.env.VISUAL_MISMATCH_TOLERANCE,
-  0.01,
-);
-const visualMismatchTolerancePercent = Math.round(visualMismatchTolerance * 10000) / 100;
-// REPORT_SCREENSHOT_DOWNSCALE (0-1 or 0-100) controls report-only downgrade (Mochawesome + visual report copies).
+// REPORT_SCREENSHOT_DOWNSCALE (0-1 or 0-100) controls mochawesome-only downgrade; 1 disables.
 const reportScreenshotScale = normalizeReportScreenshotDowngrade(
   process.env.REPORT_SCREENSHOT_DOWNSCALE,
   0.3,
@@ -652,12 +183,14 @@ const finalScreenshotMarker = '__FINAL_SCREENSHOT__'; // Sentinel to relabel the
 const finalScreenshotLabel = '!!! FINAL SCREENSHOT (TEST PASSED) !!!';
 const failureScreenshotMarker = '__FAILURE_SCREENSHOT__';
 const failureScreenshotLabel = '!!! FAILURE SCREENSHOT (TEST FAILED) !!!';
-const currentScreenshotLabel = 'Current Screenshot';
 const screenshotLabelMap = {
   [finalScreenshotMarker]: finalScreenshotLabel,
   [failureScreenshotMarker]: failureScreenshotLabel,
 };
 const dataUrlPattern = /^data:image\/([a-zA-Z0-9.+-]+);base64,(.*)$/;
+const visualCheckpointTitlePattern = /^STEP \d+ VISUAL CHECKPOINT - ([0-9]+(?:\.[0-9]+)?)% DIFFERENCE$/;
+const visualDiffTitlePattern = /^STEP \d+ VISUAL DIFF$/;
+const visualPendingTitlePattern = /^STEP \d+ BASELINE CREATED - COMPARISON PENDING$/;
 
 const listFilesRecursive = (dir) => {
   if (!fs.existsSync(dir)) {
@@ -761,21 +294,266 @@ const applyScreenshotLabels = (context) => {
       continue;
     }
 
-    if (
-      enableVisualComparison &&
-      entry &&
-      typeof entry === 'object' &&
-      entry.title === 'Screenshot'
-    ) {
-      updated.push({ ...entry, title: currentScreenshotLabel });
-      changed = true;
-      continue;
-    }
-
     updated.push(entry);
   }
 
   return { value: updated, changed };
+};
+
+const shouldKeepReportContextEntry = (entry) => {
+  if (!entry || typeof entry !== 'object') {
+    return true;
+  }
+
+  if (entry.title === 'Session Id') {
+    return false;
+  }
+
+  if (entry.title === finalScreenshotMarker || entry.title === failureScreenshotMarker) {
+    return false;
+  }
+
+  return true;
+};
+
+const parseContextEntries = (item) => {
+  if (!item || typeof item.context !== 'string') {
+    return null;
+  }
+
+  try {
+    return JSON.parse(item.context);
+  } catch (error) {
+    return null;
+  }
+};
+
+const contextHasVisualRegression = (context) => {
+  if (!Array.isArray(context)) {
+    return false;
+  }
+
+  return context.some((entry) => {
+    if (!entry || typeof entry !== 'object' || typeof entry.title !== 'string') {
+      return false;
+    }
+
+    if (visualDiffTitlePattern.test(entry.title)) {
+      return true;
+    }
+
+    const match = visualCheckpointTitlePattern.exec(entry.title);
+    return Boolean(match && Number.parseFloat(match[1]) > 0);
+  });
+};
+
+const contextHasPendingVisualComparison = (context) => {
+  if (!Array.isArray(context)) {
+    return false;
+  }
+
+  return context.some((entry) => {
+    if (!entry || typeof entry !== 'object' || typeof entry.title !== 'string') {
+      return false;
+    }
+
+    return visualPendingTitlePattern.test(entry.title);
+  });
+};
+
+const normalizeTestStateForVisualRegression = (test) => {
+  const context = parseContextEntries(test);
+
+  if (!contextHasVisualRegression(context)) {
+    return false;
+  }
+
+  test.state = 'failed';
+  test.pass = false;
+  test.fail = true;
+  test.pending = false;
+  test.skipped = false;
+  test.err = {
+    ...(test.err || {}),
+    name: test.err?.name || 'VisualDifferenceError',
+    message: test.err?.message || 'Visual difference detected',
+    stack: test.err?.stack || 'Visual difference detected',
+    estack: test.err?.estack || 'Visual difference detected',
+  };
+
+  return true;
+};
+
+const normalizeTestStateForPendingVisualComparison = (test) => {
+  if (!test || test.fail === true || test.state === 'failed') {
+    return false;
+  }
+
+  const context = parseContextEntries(test);
+
+  if (contextHasVisualRegression(context) || !contextHasPendingVisualComparison(context)) {
+    return false;
+  }
+
+  test.state = 'pending';
+  test.pass = false;
+  test.fail = false;
+  test.pending = true;
+  test.skipped = true;
+  test.err = {};
+
+  return true;
+};
+
+const rebuildSuiteStateLists = (suite) => {
+  if (!suite || typeof suite !== 'object') {
+    return;
+  }
+
+  suite.passes = [];
+  suite.failures = [];
+  suite.pending = [];
+  suite.skipped = [];
+
+  if (Array.isArray(suite.tests)) {
+    for (const test of suite.tests) {
+      if (test?.pass) {
+        suite.passes.push(test.uuid);
+      } else if (test?.fail) {
+        suite.failures.push(test.uuid);
+      } else if (test?.pending || test?.skipped) {
+        suite.pending.push(test.uuid);
+        suite.skipped.push(test.uuid);
+      }
+    }
+  }
+
+  if (Array.isArray(suite.suites)) {
+    suite.suites.forEach(rebuildSuiteStateLists);
+  }
+};
+
+const collectStatsFromSuite = (suite) => {
+  const counts = {
+    tests: 0,
+    passes: 0,
+    failures: 0,
+    pending: 0,
+    skipped: 0,
+  };
+
+  if (!suite || typeof suite !== 'object') {
+    return counts;
+  }
+
+  if (Array.isArray(suite.tests)) {
+    for (const test of suite.tests) {
+      counts.tests += 1;
+      if (test?.pass) {
+        counts.passes += 1;
+      } else if (test?.fail) {
+        counts.failures += 1;
+      } else if (test?.pending || test?.skipped) {
+        counts.pending += 1;
+        counts.skipped += 1;
+      }
+    }
+  }
+
+  if (Array.isArray(suite.suites)) {
+    for (const child of suite.suites) {
+      const childCounts = collectStatsFromSuite(child);
+      counts.tests += childCounts.tests;
+      counts.passes += childCounts.passes;
+      counts.failures += childCounts.failures;
+      counts.pending += childCounts.pending;
+      counts.skipped += childCounts.skipped;
+    }
+  }
+
+  return counts;
+};
+
+const normalizeVisualRegressionResultsFile = (filePath) => {
+  if (!fs.existsSync(filePath)) {
+    return { changed: false, hasFailures: false };
+  }
+
+  let data;
+
+  try {
+    data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    console.warn(`[Mochawesome] Failed to read JSON for regression normalization: ${error.message}`);
+    return { changed: false, hasFailures: false };
+  }
+
+  let changed = false;
+  let hasFailures = false;
+
+  const results = Array.isArray(data.results) ? data.results : [];
+  for (const result of results) {
+    const suites = Array.isArray(result.suites) ? result.suites : [];
+
+    for (const suite of suites) {
+      const stack = [suite];
+
+      while (stack.length > 0) {
+        const current = stack.pop();
+
+        if (Array.isArray(current?.tests)) {
+          for (const test of current.tests) {
+            const failedChanged = normalizeTestStateForVisualRegression(test);
+            const pendingChanged = normalizeTestStateForPendingVisualComparison(test);
+            changed = changed || failedChanged || pendingChanged;
+            hasFailures = hasFailures || test?.fail === true;
+          }
+        }
+
+        if (Array.isArray(current?.suites)) {
+          current.suites.forEach((child) => stack.push(child));
+        }
+      }
+
+      rebuildSuiteStateLists(suite);
+    }
+  }
+
+  const totals = results.reduce(
+    (acc, result) => {
+      const suites = Array.isArray(result.suites) ? result.suites : [];
+      for (const suite of suites) {
+        const suiteCounts = collectStatsFromSuite(suite);
+        acc.tests += suiteCounts.tests;
+        acc.passes += suiteCounts.passes;
+        acc.failures += suiteCounts.failures;
+        acc.pending += suiteCounts.pending;
+        acc.skipped += suiteCounts.skipped;
+      }
+      return acc;
+    },
+    { tests: 0, passes: 0, failures: 0, pending: 0, skipped: 0 },
+  );
+
+  if (data.stats) {
+    data.stats.tests = totals.tests;
+    data.stats.testsRegistered = totals.tests;
+    data.stats.passes = totals.passes;
+    data.stats.failures = totals.failures;
+    data.stats.pending = totals.pending;
+    data.stats.skipped = totals.skipped;
+    data.stats.hasSkipped = totals.skipped > 0;
+    data.stats.passPercent = totals.tests === 0 ? 0 : Math.round((totals.passes / totals.tests) * 100);
+    data.stats.pendingPercent = totals.tests === 0 ? 0 : Math.round((totals.pending / totals.tests) * 100);
+    data.stats.other = 0;
+    data.stats.hasOther = false;
+  }
+
+  if (changed) {
+    fs.writeFileSync(filePath, JSON.stringify(data));
+  }
+
+  return { changed, hasFailures };
 };
 
 const compressContextEntry = async (entry, settings, shouldCompress) => {
@@ -812,6 +590,11 @@ const compressContextValue = async (context, settings, shouldCompress) => {
     changed = changed || labelResult.changed;
 
     for (const entry of labelResult.value) {
+      if (!shouldKeepReportContextEntry(entry)) {
+        changed = true;
+        continue;
+      }
+
       const result = await compressContextEntry(entry, settings, shouldCompress);
       updated.push(result.value);
       changed = changed || result.changed;
@@ -973,6 +756,11 @@ const browserStackKey = process.env.BROWSERSTACK_ACCESS_KEY || process.env.BROWS
 const runOnBrowserStack = Boolean(browserStackUser && browserStackKey);
 const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
+const appiumServiceLogLevel = normalizeAppiumServiceLogLevel(appiumLogLevel);
+const appiumStartTimeout = normalizePositiveInt(
+  process.env.APPIUM_START_TIMEOUT,
+  isCI ? 60000 : isAndroid ? 30000 : 120000,
+);
 const ensureXcodeDeveloperDir = () => {
   if (isAndroid || runOnBrowserStack || process.platform !== 'darwin') {
     return;
@@ -1146,6 +934,12 @@ const specs = ['./tests/specs/**/*.js'];
 let suiteHasFailures = false;
 let actionScreenshotHooksInstalled = false;
 let isInTest = false;
+let visualStepIndex = 0;
+let currentTestVisualTag = 'test';
+let currentTestFullTitle = 'test';
+let actionCaptureDepth = 0;
+let currentTestPendingVisualComparisons = [];
+let currentTestVisualDifferences = [];
 
 const withTimeout = async (promise, ms, label) => {
   let timeoutId;
@@ -1156,21 +950,190 @@ const withTimeout = async (promise, ms, label) => {
   return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
 };
 
+const sanitizeVisualTagPart = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+
 const buildActionLabel = (element, actionName) => {
   const selector = typeof element?.selector === 'string' ? element.selector : '';
   return selector ? `Before ${actionName} (${selector})` : `Before ${actionName}`;
 };
 
-const buildVisualStepTag = (actionName, element) => {
-  const step = String(nextVisualStepCounter()).padStart(3, '0');
-  const action = sanitizeTag(`before_${actionName}`, 24);
-  const selector = sanitizeTag(element?.selector, 32);
-  const parts = [getVisualTestLabel(), `step_${step}`, action, selector].filter(Boolean);
-  return parts.join('__');
+const formatDiffPercent = (diff) => `${(Number(diff || 0) * 100).toFixed(2)}%`;
+
+const createVisualStepInfo = (element, actionName) => {
+  const selector = typeof element?.selector === 'string' ? element.selector : '';
+  const selectorPart = sanitizeVisualTagPart(selector) || 'screen';
+  const actionPart = sanitizeVisualTagPart(actionName) || 'action';
+  const index = ++visualStepIndex;
+  const stepPart = String(index).padStart(2, '0');
+
+  return {
+    index,
+    stepPart,
+    reportTitle: `STEP ${stepPart}`,
+    description: buildActionLabel(element, actionName),
+    tag: `${currentTestVisualTag}-${stepPart}-${actionPart}-${selectorPart}`,
+  };
 };
-const buildFinalVisualTag = () => {
-  const parts = [getVisualTestLabel(), 'final'].filter(Boolean);
-  return parts.join('__');
+
+const createFinalVisualStepInfo = () => {
+  const index = ++visualStepIndex;
+  const stepPart = String(index).padStart(2, '0');
+
+  return {
+    index,
+    stepPart,
+    reportTitle: `STEP ${stepPart}`,
+    description: 'Final screen',
+    tag: `${currentTestVisualTag}-${stepPart}-final-screen`,
+  };
+};
+
+const resetCurrentTestVisualState = () => {
+  visualStepIndex = 0;
+  actionCaptureDepth = 0;
+  currentTestPendingVisualComparisons = [];
+  currentTestVisualDifferences = [];
+};
+
+const readPendingVisualFailures = () => {
+  if (!fs.existsSync(pendingVisualResultsFile)) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(fs.readFileSync(pendingVisualResultsFile, 'utf8'));
+  } catch (error) {
+    return {};
+  }
+};
+
+const writePendingVisualFailure = (fullTitle, pendingSteps) => {
+  if (!fullTitle || !pendingSteps) {
+    return;
+  }
+
+  const current = readPendingVisualFailures();
+  current[fullTitle] = pendingSteps;
+  fs.writeFileSync(pendingVisualResultsFile, JSON.stringify(current));
+};
+
+const recordVisualDifference = (stepInfo, diff) => {
+  currentTestVisualDifferences.push({
+    reportTitle: stepInfo.reportTitle,
+    diffPercent: formatDiffPercent(diff),
+  });
+};
+
+const createPendingVisualFailureMessage = (pendingSteps) =>
+  `Visual baseline missing - comparison pending in ${pendingSteps.join(
+    ', ',
+  )}. Re-run the test to validate generated baselines.`;
+
+const createVisualDifferenceFailureMessage = (differences) =>
+  `Visual differences detected in ${differences
+    .map((entry) => `${entry.reportTitle} (${entry.diffPercent})`)
+    .join(', ')}.`;
+
+const markPendingVisualComparison = (stepInfo) => {
+  if (!stepInfo?.reportTitle) {
+    return;
+  }
+
+  if (!currentTestPendingVisualComparisons.includes(stepInfo.reportTitle)) {
+    currentTestPendingVisualComparisons.push(stepInfo.reportTitle);
+  }
+};
+
+const screenshotDataUrlFromBase64 = (base64) => {
+  if (!base64) {
+    return null;
+  }
+
+  return `data:image/png;base64,${base64}`;
+};
+
+const readImageFileAsDataUrl = (filePath) => {
+  if (!filePath || !fs.existsSync(filePath)) {
+    return null;
+  }
+
+  const extension = filePath.split('.').pop()?.toLowerCase();
+  const mime = extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg' : 'image/png';
+  const buffer = fs.readFileSync(filePath);
+  return `data:${mime};base64,${buffer.toString('base64')}`;
+};
+
+const findVisualArtifactPath = (artifactType, tag) => {
+  const artifactDir = join(reportDirs.visualOutput, artifactType);
+
+  if (!fs.existsSync(artifactDir)) {
+    return null;
+  }
+
+  const prefix = `${tag}-`;
+  const match = listFilesRecursive(artifactDir)
+    .sort()
+    .find((filePath) => fs.statSync(filePath).isFile() && filePath.split(sep).pop()?.startsWith(prefix));
+
+  return match || null;
+};
+
+const findBaselineArtifactPath = (tag) => {
+  if (!fs.existsSync(reportDirs.visualBaseline)) {
+    return null;
+  }
+
+  const prefix = `${tag}-`;
+  const match = listFilesRecursive(reportDirs.visualBaseline)
+    .sort()
+    .find((filePath) => fs.statSync(filePath).isFile() && filePath.split(sep).pop()?.startsWith(prefix));
+
+  return match || null;
+};
+
+const emitReportContext = (title, value) => {
+  process.emit('wdio-mochawesome-reporter:addContext', { title, value });
+};
+
+const emitVisualStepReport = ({
+  stepInfo,
+  diff,
+  screenshotBase64,
+  diffArtifactPath,
+  baselineCreated = false,
+}) => {
+  emitReportContext(stepInfo.reportTitle, stepInfo.description);
+
+  const stepCapture = screenshotDataUrlFromBase64(screenshotBase64);
+  if (stepCapture) {
+    emitReportContext(`${stepInfo.reportTitle} CAPTURE`, stepCapture);
+  }
+
+  if (baselineCreated) {
+    markPendingVisualComparison(stepInfo);
+    emitReportContext(
+      `${stepInfo.reportTitle} BASELINE CREATED - COMPARISON PENDING`,
+      'Baseline created in this run. Re-run the test to validate this step.',
+    );
+    return;
+  }
+
+  emitReportContext(
+    `${stepInfo.reportTitle} VISUAL CHECKPOINT - ${formatDiffPercent(diff)} DIFFERENCE`,
+    stepInfo.description,
+  );
+
+  if (diff > 0 && diffArtifactPath) {
+    const diffImage = readImageFileAsDataUrl(diffArtifactPath);
+    if (diffImage) {
+      emitReportContext(`${stepInfo.reportTitle} VISUAL DIFF`, diffImage);
+    }
+  }
 };
 
 const captureActionScreenshot = async (element, actionName) => {
@@ -1190,25 +1153,83 @@ const captureActionScreenshot = async (element, actionName) => {
     return;
   }
 
-  process.emit('wdio-mochawesome-reporter:addContext', {
-    title: 'Step',
-    value: buildActionLabel(element, actionName),
-  });
+  const stepInfo = createVisualStepInfo(element, actionName);
+  let diff = 0;
+  const baselineExisted =
+    enableVisualComparison && typeof browser.checkScreen === 'function'
+      ? Boolean(findBaselineArtifactPath(stepInfo.tag))
+      : false;
 
-  let didVisualCheck = false;
-
-  if (enableVisualComparison && typeof browser?.checkScreen === 'function') {
-    const tag = buildVisualStepTag(actionName, element);
-    await browser.checkScreen(tag, { hideElements: [] });
-    didVisualCheck = true;
+  if (enableVisualComparison && typeof browser.checkScreen === 'function') {
+    diff = await browser.checkScreen(stepInfo.tag, { hideElements: [] });
   }
 
-  if (!didVisualCheck) {
-    try {
-      await browser.takeScreenshot();
-    } catch (error) {
-      console.warn(`[Screenshot] Failed before ${actionName}: ${error.message}`);
+  let screenshotBase64 = null;
+
+  try {
+    screenshotBase64 = await browser.takeScreenshot();
+  } catch (error) {
+    console.warn(`[Screenshot] Failed before ${actionName}: ${error.message}`);
+  }
+
+  const diffArtifactPath = diff > 0 ? findVisualArtifactPath('diff', stepInfo.tag) : null;
+  emitVisualStepReport({
+    stepInfo,
+    diff,
+    screenshotBase64,
+    diffArtifactPath,
+    baselineCreated: enableVisualComparison && !baselineExisted,
+  });
+
+  if (diff > 0) {
+    if (collectAllVisualDifferences) {
+      recordVisualDifference(stepInfo, diff);
+      return;
     }
+
+    throw new Error(`Visual difference detected at ${stepInfo.tag} (diff: ${diff})`);
+  }
+};
+
+const runFinalVisualCheckpoint = async (testTitle) => {
+  const finalStepInfo = createFinalVisualStepInfo();
+  const finalBaselineExisted =
+    enableVisualComparison && typeof browser.checkScreen === 'function'
+      ? Boolean(findBaselineArtifactPath(finalStepInfo.tag))
+      : false;
+  let finalVisualDiff = 0;
+  let finalScreenshotBase64 = null;
+  const mochawesomeShotsDir = reportDirs.mochawesomeScreenshots;
+  const fileName = `${Date.now()}-${String(testTitle || 'test').replace(/[^a-z0-9-_]+/gi, '_')}-final.png`;
+  const mochawesomeShotPath = join(mochawesomeShotsDir, fileName);
+  fs.mkdirSync(mochawesomeShotsDir, { recursive: true });
+
+  if (enableVisualComparison && typeof browser.checkScreen === 'function') {
+    finalVisualDiff = await browser.checkScreen(finalStepInfo.tag, { hideElements: [] });
+  }
+
+  try {
+    finalScreenshotBase64 = await browser.takeScreenshot();
+    await browser.saveScreenshot(mochawesomeShotPath);
+  } catch (error) {
+    console.warn(`[Screenshot] Failed final capture for ${testTitle}: ${error.message}`);
+  }
+
+  emitVisualStepReport({
+    stepInfo: finalStepInfo,
+    diff: finalVisualDiff || 0,
+    screenshotBase64: finalScreenshotBase64,
+    diffArtifactPath: finalVisualDiff > 0 ? findVisualArtifactPath('diff', finalStepInfo.tag) : null,
+    baselineCreated: enableVisualComparison && !finalBaselineExisted,
+  });
+
+  if (finalVisualDiff > 0) {
+    if (collectAllVisualDifferences) {
+      recordVisualDifference(finalStepInfo, finalVisualDiff);
+      return;
+    }
+
+    throw new Error(`Visual difference detected at ${finalStepInfo.tag} (diff: ${finalVisualDiff})`);
   }
 };
 
@@ -1218,14 +1239,24 @@ const installActionScreenshotHooks = () => {
   }
 
   actionScreenshotHooksInstalled = true;
-  const commandsToCapture = ['click', 'setValue', 'addValue', 'clearValue'];
+  const commandsToCapture = ['click', 'setValue'];
 
   commandsToCapture.forEach((commandName) => {
     browser.overwriteCommand(
       commandName,
       async function (origCommand, ...args) {
-        await captureActionScreenshot(this, commandName);
-        return origCommand.apply(this, args);
+        if (actionCaptureDepth > 0) {
+          return origCommand.apply(this, args);
+        }
+
+        actionCaptureDepth += 1;
+
+        try {
+          await captureActionScreenshot(this, commandName);
+          return origCommand.apply(this, args);
+        } finally {
+          actionCaptureDepth -= 1;
+        }
       },
       true,
     );
@@ -1280,15 +1311,12 @@ if (runOnBrowserStack) {
   ]);
 } else {
   const appiumServiceOptions = {
+    appiumStartTimeout,
     args: {
       basePath: '/wd/hub',
-      logLevel: appiumLogLevel,
+      logLevel: appiumServiceLogLevel,
     },
   };
-
-  if (isCI) {
-    appiumServiceOptions.command = join(process.cwd(), 'scripts', 'appium-wrapper.sh');
-  }
 
   if (appiumLogPath) {
     appiumServiceOptions.logPath = appiumLogPath;
@@ -1305,8 +1333,7 @@ if (enableVisualComparison) {
       screenshotPath: reportDirs.visualOutput,
       formatImageName: '{tag}-{platformName}-{deviceName}-{width}x{height}',
       savePerInstance: true,
-      autoSaveBaseline: false,
-      alwaysSaveActualImage: true,
+      autoSaveBaseline: true,
     },
   ]);
 }
@@ -1391,7 +1418,7 @@ const config = {
       : []),
   ],
   mochawesomeOpts: {
-    includeScreenshots: true,
+    includeScreenshots: false,
     screenshotUseRelativePath: true,
   },
   mochaOpts: {
@@ -1406,22 +1433,18 @@ const config = {
 
   before: async () => {
     installActionScreenshotHooks();
-    if (enableVisualComparison) {
-      installVisualComparisonCounter();
-      installVisualTestWrapper();
+  },
+  onPrepare: async () => {
+    if (fs.existsSync(pendingVisualResultsFile)) {
+      fs.rmSync(pendingVisualResultsFile, { force: true });
     }
   },
 
   beforeTest: async (test) => {
+    resetCurrentTestVisualState();
     isInTest = true;
-    if (enableVisualComparison) {
-      installVisualComparisonCounter();
-      resetVisualComparisonCounter();
-      resetVisualMissingBaselineCounter();
-      resetVisualMismatchList();
-      resetVisualStepCounter();
-      setVisualTestLabel(test);
-    }
+    currentTestVisualTag = sanitizeVisualTagPart(test?.fullTitle || test?.title || 'test') || 'test';
+    currentTestFullTitle = test?.fullTitle || test?.title || 'test';
     await driver.setTimeout({ implicit: 10000 });
   },
 
@@ -1439,10 +1462,6 @@ const config = {
       fs.mkdirSync(mochawesomeShotsDir, { recursive: true });
       fs.mkdirSync(visualErrorDir, { recursive: true });
 
-      process.emit('wdio-mochawesome-reporter:addContext', {
-        title: failureScreenshotMarker,
-        value: true,
-      });
       await browser.saveScreenshot(mochawesomeShotPath);
       fs.copyFileSync(mochawesomeShotPath, visualShotPath);
 
@@ -1454,23 +1473,21 @@ const config = {
       } catch (sourceError) {
       }
     } else {
-      const fileName = `${Date.now()}-${sanitizedTitle}-final.png`;
-      const mochawesomeShotsDir = reportDirs.mochawesomeScreenshots;
-      const mochawesomeShotPath = join(mochawesomeShotsDir, fileName);
-      fs.mkdirSync(mochawesomeShotsDir, { recursive: true });
+      await runFinalVisualCheckpoint(test.fullTitle || test.title);
 
-      try {
-        process.emit('wdio-mochawesome-reporter:addContext', {
-          title: finalScreenshotMarker,
-          value: true,
-        });
-        await browser.saveScreenshot(mochawesomeShotPath);
-      } catch (error) {
-        console.warn(`[Screenshot] Failed final capture for ${test.title}: ${error.message}`);
+      if (currentTestPendingVisualComparisons.length > 0) {
+        const pendingMessage = createPendingVisualFailureMessage(currentTestPendingVisualComparisons);
+        visualFailureMessagesByTest.set(currentTestFullTitle, pendingMessage);
+        writePendingVisualFailure(currentTestFullTitle, { type: 'pending', message: pendingMessage });
+      } else if (currentTestVisualDifferences.length > 0) {
+        const differenceMessage = createVisualDifferenceFailureMessage(currentTestVisualDifferences);
+        visualFailureMessagesByTest.set(currentTestFullTitle, differenceMessage);
+        writePendingVisualFailure(currentTestFullTitle, { type: 'diff', message: differenceMessage });
       }
     }
 
     isInTest = false;
+    resetCurrentTestVisualState();
   },
   onComplete: async () => {
     const resultsDir = reportDirs.mochawesomeJson;
@@ -1482,6 +1499,11 @@ const config = {
     if (resultFiles.length === 0) {
       console.warn('[Mochawesome] No JSON results found, skipping report generation.');
       return;
+    }
+
+    for (const file of resultFiles) {
+      const normalized = normalizeVisualRegressionResultsFile(join(resultsDir, file));
+      suiteHasFailures = suiteHasFailures || normalized.hasFailures;
     }
 
     fs.mkdirSync(reportDir, { recursive: true });
@@ -1496,6 +1518,8 @@ const config = {
       return;
     }
 
+    const normalizedMerged = normalizeVisualRegressionResultsFile(mergedFile);
+    suiteHasFailures = suiteHasFailures || normalizedMerged.hasFailures;
     await compressMochawesomeJsonScreenshots(mergedFile, reportScreenshotSettings);
 
     if (shouldCompressReportScreenshots) {
@@ -1515,6 +1539,10 @@ const config = {
       { stdio: 'inherit' },
     );
     injectReportScreenshotCss(reportPath, reportScreenshotDisplayWidth);
+
+    if (suiteHasFailures) {
+      throw new Error('Visual differences detected');
+    }
   },
 
 };

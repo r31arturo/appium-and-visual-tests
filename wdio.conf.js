@@ -1141,6 +1141,8 @@ const captureActionScreenshot = async (element, actionName) => {
     return;
   }
 
+  const isVisualMode = enableVisualComparison && typeof browser.checkScreen === 'function';
+
   let exists = false;
 
   try {
@@ -1155,12 +1157,9 @@ const captureActionScreenshot = async (element, actionName) => {
 
   const stepInfo = createVisualStepInfo(element, actionName);
   let diff = 0;
-  const baselineExisted =
-    enableVisualComparison && typeof browser.checkScreen === 'function'
-      ? Boolean(findBaselineArtifactPath(stepInfo.tag))
-      : false;
+  const baselineExisted = isVisualMode ? Boolean(findBaselineArtifactPath(stepInfo.tag)) : false;
 
-  if (enableVisualComparison && typeof browser.checkScreen === 'function') {
+  if (isVisualMode) {
     diff = await browser.checkScreen(stepInfo.tag, { hideElements: [] });
   }
 
@@ -1178,7 +1177,7 @@ const captureActionScreenshot = async (element, actionName) => {
     diff,
     screenshotBase64,
     diffArtifactPath,
-    baselineCreated: enableVisualComparison && !baselineExisted,
+    baselineCreated: isVisualMode && !baselineExisted,
   });
 
   if (diff > 0) {
@@ -1483,11 +1482,13 @@ const config = {
     } else {
       await runFinalVisualCheckpoint(test.fullTitle || test.title);
 
-      if (enableVisualComparison && currentTestPendingVisualComparisons.length > 0) {
+      const isVisualMode = enableVisualComparison && typeof browser.checkScreen === 'function';
+
+      if (isVisualMode && currentTestPendingVisualComparisons.length > 0) {
         const pendingMessage = createPendingVisualFailureMessage(currentTestPendingVisualComparisons);
         visualFailureMessagesByTest.set(currentTestFullTitle, pendingMessage);
         writePendingVisualFailure(currentTestFullTitle, { type: 'pending', message: pendingMessage });
-      } else if (enableVisualComparison && currentTestVisualDifferences.length > 0) {
+      } else if (isVisualMode && currentTestVisualDifferences.length > 0) {
         const differenceMessage = createVisualDifferenceFailureMessage(currentTestVisualDifferences);
         visualFailureMessagesByTest.set(currentTestFullTitle, differenceMessage);
         writePendingVisualFailure(currentTestFullTitle, { type: 'diff', message: differenceMessage });

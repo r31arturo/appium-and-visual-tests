@@ -1193,10 +1193,9 @@ const captureActionScreenshot = async (element, actionName) => {
 
 const runFinalVisualCheckpoint = async (testTitle) => {
   const finalStepInfo = createFinalVisualStepInfo();
+  const isVisualMode = enableVisualComparison && typeof browser.checkScreen === 'function';
   const finalBaselineExisted =
-    enableVisualComparison && typeof browser.checkScreen === 'function'
-      ? Boolean(findBaselineArtifactPath(finalStepInfo.tag))
-      : false;
+    isVisualMode ? Boolean(findBaselineArtifactPath(finalStepInfo.tag)) : false;
   let finalVisualDiff = 0;
   let finalScreenshotBase64 = null;
   const mochawesomeShotsDir = reportDirs.mochawesomeScreenshots;
@@ -1204,7 +1203,7 @@ const runFinalVisualCheckpoint = async (testTitle) => {
   const mochawesomeShotPath = join(mochawesomeShotsDir, fileName);
   fs.mkdirSync(mochawesomeShotsDir, { recursive: true });
 
-  if (enableVisualComparison && typeof browser.checkScreen === 'function') {
+  if (isVisualMode) {
     finalVisualDiff = await browser.checkScreen(finalStepInfo.tag, { hideElements: [] });
   }
 
@@ -1215,12 +1214,21 @@ const runFinalVisualCheckpoint = async (testTitle) => {
     console.warn(`[Screenshot] Failed final capture for ${testTitle}: ${error.message}`);
   }
 
+  if (!isVisualMode) {
+    emitReportContext(finalStepInfo.reportTitle, finalStepInfo.description);
+    const stepCapture = screenshotDataUrlFromBase64(finalScreenshotBase64);
+    if (stepCapture) {
+      emitReportContext(`${finalStepInfo.reportTitle} CAPTURE`, stepCapture);
+    }
+    return;
+  }
+
   emitVisualStepReport({
     stepInfo: finalStepInfo,
     diff: finalVisualDiff || 0,
     screenshotBase64: finalScreenshotBase64,
     diffArtifactPath: finalVisualDiff > 0 ? findVisualArtifactPath('diff', finalStepInfo.tag) : null,
-    baselineCreated: enableVisualComparison && !finalBaselineExisted,
+    baselineCreated: !finalBaselineExisted,
   });
 
   if (finalVisualDiff > 0) {
@@ -1475,11 +1483,11 @@ const config = {
     } else {
       await runFinalVisualCheckpoint(test.fullTitle || test.title);
 
-      if (currentTestPendingVisualComparisons.length > 0) {
+      if (enableVisualComparison && currentTestPendingVisualComparisons.length > 0) {
         const pendingMessage = createPendingVisualFailureMessage(currentTestPendingVisualComparisons);
         visualFailureMessagesByTest.set(currentTestFullTitle, pendingMessage);
         writePendingVisualFailure(currentTestFullTitle, { type: 'pending', message: pendingMessage });
-      } else if (currentTestVisualDifferences.length > 0) {
+      } else if (enableVisualComparison && currentTestVisualDifferences.length > 0) {
         const differenceMessage = createVisualDifferenceFailureMessage(currentTestVisualDifferences);
         visualFailureMessagesByTest.set(currentTestFullTitle, differenceMessage);
         writePendingVisualFailure(currentTestFullTitle, { type: 'diff', message: differenceMessage });

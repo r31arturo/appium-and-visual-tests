@@ -1114,6 +1114,11 @@ const emitVisualStepReport = ({
     emitReportContext(`${stepInfo.reportTitle} CAPTURE`, stepCapture);
   }
 
+  // `enableVisualComparison` is defined from VISUAL_COMPARE env near the config constants section.
+  if (!enableVisualComparison) {
+    return;
+  }
+
   if (baselineCreated) {
     markPendingVisualComparison(stepInfo);
     emitReportContext(

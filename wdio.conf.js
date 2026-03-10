@@ -119,6 +119,7 @@ const rawCollectAllVisualDifferences = String(process.env.VISUAL_COLLECT_ALL_DIF
 const collectAllVisualDifferences =
   enableVisualComparison && !['0', 'false', 'no', 'off'].includes(rawCollectAllVisualDifferences);
 const runModeLabel = enableVisualComparison ? 'Visual' : 'Functional';
+const runModeSlug = enableVisualComparison ? 'visual' : 'functional';
 const reportFileName = enableVisualComparison ? 'mochawesome-visual' : 'mochawesome-functional';
 const normalizeReportScreenshotDowngrade = (value, fallback) => {
   const raw = typeof value === 'string' ? value.trim() : value;
@@ -756,6 +757,7 @@ const browserStackKey = process.env.BROWSERSTACK_ACCESS_KEY || process.env.BROWS
 const runOnBrowserStack = Boolean(browserStackUser && browserStackKey);
 const platformName = (process.env.PLATFORM_NAME || 'Android').toLowerCase();
 const isAndroid = platformName === 'android';
+const platformSlug = isAndroid ? 'android' : 'ios';
 const appiumServiceLogLevel = normalizeAppiumServiceLogLevel(appiumLogLevel);
 const appiumStartTimeout = normalizePositiveInt(
   process.env.APPIUM_START_TIMEOUT,
@@ -1381,10 +1383,10 @@ const bsCaps = {
   ...baseCaps,
   'bstack:options': {
     projectName: process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests',
-    buildName: process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests',
+    buildName: process.env.BROWSERSTACK_BUILD_NAME || `appium-and-visual-tests-${runModeSlug}-${platformSlug}`,
     sessionName:
       process.env.BROWSERSTACK_SESSION_NAME ||
-      `run-${process.env.GITHUB_RUN_ID || process.env.GITHUB_RUN_NUMBER || 'local'}-${new Date().toISOString()}`,
+      `${runModeSlug}-${platformSlug}-run-${process.env.GITHUB_RUN_ID || process.env.GITHUB_RUN_NUMBER || 'local'}-${new Date().toISOString()}`,
     deviceName: process.env.DEVICE_NAME || (isAndroid ? 'Google Pixel 8' : 'iPhone 15'),
     platformVersion: process.env.PLATFORM_VERSION || (isAndroid ? '14.0' : '17.0'),
     debug: true,
@@ -1464,44 +1466,51 @@ const config = {
     suiteHasFailures = suiteHasFailures || Boolean(error);
     const sanitizedTitle = test.title.replace(/[^a-z0-9-_]+/gi, '_');
 
-    if (!passed) {
-      const timestamp = Date.now();
-      const fileName = `${timestamp}-${sanitizedTitle}.png`;
-      const visualErrorDir = join(reportDirs.visualOutput, 'errorShots');
-      const mochawesomeShotsDir = reportDirs.mochawesomeScreenshots;
-      const mochawesomeShotPath = join(mochawesomeShotsDir, fileName);
-      const visualShotPath = join(visualErrorDir, fileName);
-      fs.mkdirSync(mochawesomeShotsDir, { recursive: true });
-      fs.mkdirSync(visualErrorDir, { recursive: true });
+    try {
+      if (!passed) {
+        const timestamp = Date.now();
+        const fileName = `${timestamp}-${sanitizedTitle}.png`;
+        const visualErrorDir = join(reportDirs.visualOutput, 'errorShots');
+        const mochawesomeShotsDir = reportDirs.mochawesomeScreenshots;
+        const mochawesomeShotPath = join(mochawesomeShotsDir, fileName);
+        const visualShotPath = join(visualErrorDir, fileName);
+        fs.mkdirSync(mochawesomeShotsDir, { recursive: true });
+        fs.mkdirSync(visualErrorDir, { recursive: true });
 
-      await browser.saveScreenshot(mochawesomeShotPath);
-      fs.copyFileSync(mochawesomeShotPath, visualShotPath);
+        await browser.saveScreenshot(mochawesomeShotPath);
+        fs.copyFileSync(mochawesomeShotPath, visualShotPath);
 
-      try {
-        const source = await browser.getPageSource();
-        const sourceFileName = `${timestamp}-${sanitizedTitle}.xml`;
-        const sourcePath = join(reportDirs.pageSource, sourceFileName);
-        fs.writeFileSync(sourcePath, source);
-      } catch (sourceError) {
+        try {
+          const source = await browser.getPageSource();
+          const sourceFileName = `${timestamp}-${sanitizedTitle}.xml`;
+          const sourcePath = join(reportDirs.pageSource, sourceFileName);
+          fs.writeFileSync(sourcePath, source);
+        } catch (sourceError) {
+        }
+      } else {
+        await runFinalVisualCheckpoint(test.fullTitle || test.title);
+
+        const isVisualMode = enableVisualComparison && typeof browser.checkScreen === 'function';
+
+        if (isVisualMode && currentTestPendingVisualComparisons.length > 0) {
+          const pendingMessage = createPendingVisualFailureMessage(currentTestPendingVisualComparisons);
+          visualFailureMessagesByTest.set(currentTestFullTitle, pendingMessage);
+          writePendingVisualFailure(currentTestFullTitle, { type: 'pending', message: pendingMessage });
+          suiteHasFailures = true;
+        } else if (isVisualMode && currentTestVisualDifferences.length > 0) {
+          const differenceMessage = createVisualDifferenceFailureMessage(currentTestVisualDifferences);
+          visualFailureMessagesByTest.set(currentTestFullTitle, differenceMessage);
+          writePendingVisualFailure(currentTestFullTitle, { type: 'diff', message: differenceMessage });
+          suiteHasFailures = true;
+        }
       }
-    } else {
-      await runFinalVisualCheckpoint(test.fullTitle || test.title);
-
-      const isVisualMode = enableVisualComparison && typeof browser.checkScreen === 'function';
-
-      if (isVisualMode && currentTestPendingVisualComparisons.length > 0) {
-        const pendingMessage = createPendingVisualFailureMessage(currentTestPendingVisualComparisons);
-        visualFailureMessagesByTest.set(currentTestFullTitle, pendingMessage);
-        writePendingVisualFailure(currentTestFullTitle, { type: 'pending', message: pendingMessage });
-      } else if (isVisualMode && currentTestVisualDifferences.length > 0) {
-        const differenceMessage = createVisualDifferenceFailureMessage(currentTestVisualDifferences);
-        visualFailureMessagesByTest.set(currentTestFullTitle, differenceMessage);
-        writePendingVisualFailure(currentTestFullTitle, { type: 'diff', message: differenceMessage });
-      }
+    } catch (hookError) {
+      suiteHasFailures = true;
+      throw hookError;
+    } finally {
+      isInTest = false;
+      resetCurrentTestVisualState();
     }
-
-    isInTest = false;
-    resetCurrentTestVisualState();
   },
   onComplete: async () => {
     const resultsDir = reportDirs.mochawesomeJson;
@@ -1564,11 +1573,11 @@ const config = {
 if (runOnBrowserStack) {
   console.log('[BrowserStack config]', {
     projectName: process.env.BROWSERSTACK_PROJECT_NAME || 'appium-and-visual-tests',
-    buildName: process.env.BROWSERSTACK_BUILD_NAME || 'appium-and-visual-tests',
+    buildName: process.env.BROWSERSTACK_BUILD_NAME || `appium-and-visual-tests-${runModeSlug}-${platformSlug}`,
     buildIdentifier: null,
     sessionName:
       process.env.BROWSERSTACK_SESSION_NAME ||
-      `run-${process.env.GITHUB_RUN_ID || process.env.GITHUB_RUN_NUMBER || 'local'}-${new Date().toISOString()}`,
+      `${runModeSlug}-${platformSlug}-run-${process.env.GITHUB_RUN_ID || process.env.GITHUB_RUN_NUMBER || 'local'}-${new Date().toISOString()}`,
   });
 }
 
